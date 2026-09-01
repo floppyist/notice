@@ -7,9 +7,9 @@ Ein kompaktes, einzeldateibasiertes Kanban-Notizboard als webbasierte App: **Axu
 - **Kanban-Board** mit den Spalten `Backlog`, `In Arbeit`, `Review`, `Abgeschlossen` und einem separaten, standardmäßig eingeklappten **Archiv**.
 - **Einzelne Spalten ein-/ausklappbar**: Eingeklappte Status erscheinen als vertikaler Tab-Stapel links, erweiterte Spalten füllen ein Grid in der Mitte.
 - **Neue Notiz-Maske** (Öffnen mit `Alt+N`): Titel, Status, Priorität, Fälligkeit, Inhalt (Markdown), **Checkliste/Steps**.
-- **Detail-Modal** (Doppelklick auf eine Karte): Titel, Status, Priorität, Fälligkeit, **Einrichtung** und Inhalts-/Checklisten-Bearbeitung mit **Vorschau-Modus**.
+- **Detail-Modal** (Doppelklick auf eine Karte): Titel, Status, Priorität, Fälligkeit, **Department** und Inhalts-/Checklisten-Bearbeitung mit **Vorschau-Modus**.
 - **Markdown** für den Inhalt inkl. **unterstützter HTML-Farben** und **verlinkbarer Notizen** über `[[Titel|Anzeige-Name]]` (mit Autocomplete).
-- **Einrichtungen**: Optional pro Notiz, frei erstellbar, mit **Autocomplete-Vorschlägen** (häufigste zuerst, case-insensitiv dedupliziert) in Maske und Modal.
+- **Departments**: Optional pro Notiz, frei erstellbar, mit **Autocomplete-Vorschlägen** (häufigste zuerst, case-insensitiv dedupliziert) in Maske und Modal.
 - **Drag & Drop** zum Verschieben zwischen Spalten sowie zum Umsortieren innerhalb einer Spalte.
 - **Prioritäts-Badges** (`Niedrig`/`Mittel`/`Hoch`) und **Fälligkeits-Badges** (`ÜBERFÄLLIG`/`FÄLLIG` …) auf den Karten.
 - **Export** als **JSON** oder **CSV** über ein Export-Menü.
@@ -45,19 +45,19 @@ Beim ersten Start wird `notice.db` (SQLite) automatisch in das Projektverzeichni
 
 ### Neue-Notiz-Maske
 
-- **Titel**, **Status**, **Priorität**, **Fällig**, **Einrichtung** und **Inhalt (Markdown)**.
+- **Titel**, **Status**, **Priorität**, **Fällig**, **Department** und **Inhalt (Markdown)**.
 - Unter „Checklist / Steps" lassen sich einzelne Zwischenschritte hinzufügen.
 - Position: „Erstellen & Schließen".
 
-### Einrichtungen
+### Departments
 
-- Im Feld **Einrichtung** (in Maske und Detail-Modal) werden beim Fokussieren die **häufigsten** vorhandenen Einrichtungen vorgeschlagen; beim Tippen wird live gefiltert (wie bei `[[`-Links).
-- Eingaben werden **case-insensitiv dedupliziert**: Existiert z. B. „Küche" bereits, wird auch „küche" als „Küche" gespeichert – so entstehen keine Duplikate.
-- Auf den Karten erscheint eine Einrichtung als Badge (`🏠 …`).
+- Im Feld **Department** (in Maske und Detail-Modal) werden beim Fokussieren die **häufigsten** vorhandenen Departments vorgeschlagen; beim Tippen wird live gefiltert (wie bei `[[`-Links).
+- Eingaben werden **case-insensitiv dedupliziert**: Existiert z. B. "Küche" bereits, wird auch "küche" als "Küche" gespeichert – so entstehen keine Duplikate.
+- Auf den Karten erscheint ein Department als Badge (`🏠 …`).
 
 ## Suchsyntax
 
-Die Suche durchsucht u.a. Titel, Inhalt und Einrichtung. Zusätzlich unterstützt sie `key:value`-Filter:
+Die Suche durchsucht u.a. Titel, Inhalt und Department. Zusätzlich unterstützt sie `key:value`-Filter:
 
 ```
 status:done
@@ -102,11 +102,11 @@ Beispiel `POST /api/notes`:
 
 > **Hinweis:** Das Feld `content` speichert **JSON** (`{"text": …, "checklist": […]}`), keinen Klartext. Wer über die API Klartext speichert, bricht die Checklisten-Ansicht beim nächsten Laden.
 
-### Einrichtungen
+### Departments
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/api/einrichtungen` | Liste der vorhandenen Einrichtungen als `[{name, count}]`, nach Häufigkeit sortiert und case-insensitiv dedupliziert |
+| `GET` | `/api/einrichtungen` | Liste der vorhandenen Departments als `[{name, count}]`, nach Häufigkeit sortiert und case-insensitiv dedupliziert |
 
 ## Datenmodell
 
@@ -121,7 +121,7 @@ Die Tabelle `notes` enthält:
 | `priority` | TEXT | `low`, `medium`, `high` |
 | `date` | TEXT | Erstellungsdatum (TT.MM.JJJJ) |
 | `due_date` | TEXT | Optionales Fälligkeitsdatum (YYYY-MM-DD) |
-| `einrichtung` | TEXT | Optionale Einrichtung (case-insensitiv dedupliziert) |
+| `einrichtung` | TEXT | Optionales Department (case-insensitiv dedupliziert; interner Spaltenname) |
 | `sort_order` | INTEGER | Sortierung innerhalb einer Spalte |
 
 ## Projektstruktur

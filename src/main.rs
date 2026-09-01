@@ -669,7 +669,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             >
                         </label>
                         <label class="flex flex-col gap-1 text-[11px] text-zinc-400 relative">
-                            Einrichtung
+                            Department
                             <div class="relative">
                                 <input 
                                     ref="newNoteEinrichtungInputRef"
@@ -698,7 +698,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         <span class="text-zinc-500 text-[10px] shrink-0">{{ e.count }}×</span>
                                     </button>
                                     <div v-if="filteredEinrichtungen.length === 0" class="px-3 py-2 text-zinc-500">
-                                        Keine Einrichtung vorhanden.
+                                        Keine Department vorhanden.
                                     </div>
                                 </div>
                             </div>
@@ -814,7 +814,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             <input type="date" v-model="activeNote.due_date" class="bg-zinc-950 border border-zinc-700 text-zinc-200 px-1 py-0.5 focus:outline-none">
                         </label>
                         <label class="flex items-center gap-1 text-zinc-400 relative">
-                            Einrichtung:
+                            Department:
                             <div class="relative">
                                 <input 
                                     type="text" 
@@ -841,7 +841,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         <span class="text-zinc-500 text-[10px] shrink-0">{{ e.count }}×</span>
                                     </button>
                                     <div v-if="filteredEinrichtungen.length === 0" class="px-3 py-2 text-zinc-500">
-                                        Keine Einrichtung vorhanden.
+                                        Keine Department vorhanden.
                                     </div>
                                 </div>
                             </div>
@@ -1296,7 +1296,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 const exportCsv = () => {
                     if (notes.value.length === 0) return
-                    let csvContent = "data:text/csv;charset=utf-8,ID,Title,Status,Priority,Date,DueDate,Einrichtung\r\n";
+                    let csvContent = "data:text/csv;charset=utf-8,ID,Title,Status,Priority,Date,DueDate,Department\r\n";
                     notes.value.forEach(note => {
                         let row = [note.id, `"${note.title.replace(/"/g, '""')}"`, note.status, note.priority, note.date, note.due_date || '', `"${(note.einrichtung || '').replace(/"/g, '""')}"`];
                         csvContent += row.join(",") + "\r\n";
