@@ -23,7 +23,7 @@ struct Note {
     priority: String,
     date: String,
     due_date: Option<String>,
-    einrichtung: Option<String>,
+    department: Option<String>,
     sort_order: i64,
 }
 
@@ -34,7 +34,7 @@ struct CreateNote {
     status: Option<String>,
     priority: Option<String>,
     due_date: Option<String>,
-    einrichtung: Option<String>,
+    department: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -44,7 +44,7 @@ struct UpdateNote {
     status: Option<String>,
     priority: Option<String>,
     due_date: Option<String>,
-    einrichtung: Option<String>,
+    department: Option<String>,
     sort_order: Option<i64>,
 }
 
@@ -70,7 +70,7 @@ async fn main() {
             priority TEXT NOT NULL,
             date TEXT NOT NULL,
             due_date TEXT,
-            einrichtung TEXT,
+            department TEXT,
             sort_order INTEGER NOT NULL DEFAULT 0
         )
         "#,
@@ -84,8 +84,8 @@ async fn main() {
         .execute(&pool)
         .await;
 
-    // Migration: einrichtung falls vorhandene Tabelle die Spalte fehlt
-    let _ = sqlx::query("ALTER TABLE notes ADD COLUMN einrichtung TEXT")
+    // Migration: vorhandene Bestands-DBs nutzen noch den alten Spaltennamen "einrichtung"
+    let _ = sqlx::query("ALTER TABLE notes RENAME COLUMN einrichtung TO department")
         .execute(&pool)
         .await;
 
@@ -95,7 +95,7 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/api/notes", get(get_notes).post(create_note))
         .route("/api/notes/search", get(search_notes))
-        .route("/api/einrichtungen", get(get_einrichtungen))
+        .route("/api/departments", get(get_departments))
         .route("/api/notes/:id", post(update_note).put(update_note).delete(delete_note))
         .route("/api/notes/:id/duplicate", post(duplicate_note))
         .with_state(state);
@@ -112,7 +112,7 @@ async fn index_handler() -> Html<&'static str> {
 }
 
 async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, einrichtung, sort_order FROM notes ORDER BY sort_order ASC, id ASC")
+    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, sort_order FROM notes ORDER BY sort_order ASC, id ASC")
         .fetch_all(&state.pool)
         .await
     {
@@ -121,14 +121,14 @@ async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn get_einrichtungen(State(state): State<AppState>) -> impl IntoResponse {
+async fn get_departments(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, (String, i64)>(
         r#"
-        SELECT einrichtung, COUNT(*) AS cnt
+        SELECT department, COUNT(*) AS cnt
         FROM notes
-        WHERE einrichtung IS NOT NULL AND TRIM(einrichtung) != ''
-        GROUP BY LOWER(einrichtung)
-        ORDER BY cnt DESC, LOWER(einrichtung) ASC
+        WHERE department IS NOT NULL AND TRIM(department) != ''
+        GROUP BY LOWER(department)
+        ORDER BY cnt DESC, LOWER(department) ASC
         "#,
     )
     .fetch_all(&state.pool)
@@ -145,11 +145,11 @@ async fn get_einrichtungen(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn resolve_einrichtung(
+async fn resolve_department(
     pool: &SqlitePool,
-    einrichtung: Option<String>,
+    department: Option<String>,
 ) -> Option<String> {
-    let val = einrichtung.and_then(|s| {
+    let val = department.and_then(|s| {
         let t = s.trim().to_string();
         if t.is_empty() {
             None
@@ -158,7 +158,7 @@ async fn resolve_einrichtung(
         }
     })?;
     let existing: Option<String> = sqlx::query_scalar(
-        "SELECT einrichtung FROM notes WHERE LOWER(einrichtung) = LOWER(?) AND einrichtung IS NOT NULL AND TRIM(einrichtung) != '' LIMIT 1",
+        "SELECT department FROM notes WHERE LOWER(department) = LOWER(?) AND department IS NOT NULL AND TRIM(department) != '' LIMIT 1",
     )
     .bind(&val)
     .fetch_optional(pool)
@@ -203,7 +203,7 @@ async fn create_note(
     let status = payload.status.unwrap_or_else(|| "backlog".to_string());
     let priority = payload.priority.unwrap_or_else(|| "medium".to_string());
     let due_date = payload.due_date.filter(|s| !s.is_empty());
-    let einrichtung = resolve_einrichtung(&state.pool, payload.einrichtung).await;
+    let department = resolve_department(&state.pool, payload.department).await;
 
     // sort_order: größter Wert in der Spalte + 1
     let max_sort: Result<Option<i64>, _> =
@@ -215,7 +215,7 @@ async fn create_note(
 
     let result = sqlx::query(
         r#"
-        INSERT INTO notes (title, content, status, priority, date, due_date, einrichtung, sort_order)
+        INSERT INTO notes (title, content, status, priority, date, due_date, department, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
@@ -225,7 +225,7 @@ async fn create_note(
     .bind(priority)
     .bind(date)
     .bind(due_date)
-    .bind(einrichtung)
+    .bind(department)
     .bind(sort_order)
     .execute(&state.pool)
     .await;
@@ -266,15 +266,15 @@ async fn update_note(
     let status = payload.status.unwrap_or(existing.status);
     let priority = payload.priority.unwrap_or(existing.priority);
     let due_date = payload.due_date.or(existing.due_date);
-    let einrichtung = match payload.einrichtung {
-        Some(s) => resolve_einrichtung(&state.pool, Some(s)).await,
-        None => existing.einrichtung,
+    let department = match payload.department {
+        Some(s) => resolve_department(&state.pool, Some(s)).await,
+        None => existing.department,
     };
     let sort_order = payload.sort_order.unwrap_or(existing.sort_order);
 
     let result = sqlx::query(
         r#"
-        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, einrichtung = ?, sort_order = ? WHERE id = ?
+        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, department = ?, sort_order = ? WHERE id = ?
         "#,
     )
     .bind(title)
@@ -282,7 +282,7 @@ async fn update_note(
     .bind(status)
     .bind(priority)
     .bind(due_date)
-    .bind(einrichtung)
+    .bind(department)
     .bind(sort_order)
     .bind(id)
     .execute(&state.pool)
@@ -331,7 +331,7 @@ async fn duplicate_note(
 
     let result = sqlx::query(
         r#"
-        INSERT INTO notes (title, content, status, priority, date, due_date, einrichtung, sort_order)
+        INSERT INTO notes (title, content, status, priority, date, due_date, department, sort_order)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
@@ -341,7 +341,7 @@ async fn duplicate_note(
     .bind(existing.priority)
     .bind(date)
     .bind(existing.due_date)
-    .bind(existing.einrichtung)
+    .bind(existing.department)
     .bind(sort_order)
     .execute(&state.pool)
     .await;
@@ -553,9 +553,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     {{ note.status === 'done' ? 'DONE' : note.priority }}
                                 </span>
                             </div>
-                            <div v-if="note.einrichtung" class="mt-1">
+                            <div v-if="note.department" class="mt-1">
                                 <span class="inline-flex items-center gap-1 text-[9px] text-sky-400/90 bg-sky-950/40 border border-sky-900/50 px-1.5 py-0.5 font-mono">
-                                    🏠 {{ note.einrichtung }}
+                                    🏠 {{ note.department }}
                                 </span>
                             </div>
                         </div>
@@ -614,9 +614,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             <span v-else class="text-zinc-600 font-mono">Kein Datum</span>
                             <span class="uppercase tracking-widest text-[9px] px-1 bg-zinc-950 border border-zinc-800 text-zinc-500">ARCH</span>
                         </div>
-                        <div v-if="note.einrichtung" class="mt-1">
+                        <div v-if="note.department" class="mt-1">
                             <span class="inline-flex items-center gap-1 text-[9px] text-sky-400/80 bg-sky-950/40 border border-sky-900/50 px-1.5 py-0.5 font-mono">
-                                🏠 {{ note.einrichtung }}
+                                🏠 {{ note.department }}
                             </span>
                         </div>
                     </div>
@@ -672,9 +672,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             Department
                             <div class="relative">
                                 <input 
-                                    ref="newNoteEinrichtungInputRef"
+                                    ref="newNoteDepartmentInputRef"
                                     type="text" 
-                                    v-model="newNoteEinrichtung" 
+                                    v-model="newNoteDepartment" 
                                     placeholder="z.B. Küche" 
                                     autocomplete="off"
                                     @focus="openEinDropdown('new')"
@@ -684,20 +684,20 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     class="bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 w-full"
                                 >
                                 <div 
-                                    v-if="einDropdownOpen && einDropdownSource === 'new'"
+                                    v-if="deptDropdownOpen && deptDropdownSource === 'new'"
                                     class="absolute left-0 right-0 top-full mt-1 bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto"
                                 >
                                     <button 
-                                        v-for="(e, index) in filteredEinrichtungen" 
-                                        :key="e.name"
-                                        @mousedown.prevent="selectEinrichtung(e.name)"
+                                        v-for="(dep, index) in filteredDepartments" 
+                                        :key="dep.name"
+                                        @mousedown.prevent="selectDepartment(dep.name)"
                                         class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 flex justify-between items-center gap-2 cursor-pointer"
-                                        :class="{ 'bg-zinc-800': index === einIndex }"
+                                        :class="{ 'bg-zinc-800': index === deptIndex }"
                                     >
-                                        <span class="truncate">{{ e.name }}</span>
-                                        <span class="text-zinc-500 text-[10px] shrink-0">{{ e.count }}×</span>
+                                        <span class="truncate">{{ dep.name }}</span>
+                                        <span class="text-zinc-500 text-[10px] shrink-0">{{ dep.count }}×</span>
                                     </button>
-                                    <div v-if="filteredEinrichtungen.length === 0" class="px-3 py-2 text-zinc-500">
+                                    <div v-if="filteredDepartments.length === 0" class="px-3 py-2 text-zinc-500">
                                         Keine Department vorhanden.
                                     </div>
                                 </div>
@@ -818,7 +818,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             <div class="relative">
                                 <input 
                                     type="text" 
-                                    v-model="activeNote.einrichtung" 
+                                    v-model="activeNote.department" 
                                     autocomplete="off"
                                     @focus="openEinDropdown('modal')"
                                     @input="onEinInput"
@@ -827,20 +827,20 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     class="bg-zinc-950 border border-zinc-700 text-zinc-200 px-1 py-0.5 focus:outline-none w-40"
                                 >
                                 <div 
-                                    v-if="einDropdownOpen && einDropdownSource === 'modal'"
+                                    v-if="deptDropdownOpen && deptDropdownSource === 'modal'"
                                     class="absolute left-0 top-full mt-1 bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto w-40"
                                 >
                                     <button 
-                                        v-for="(e, index) in filteredEinrichtungen" 
-                                        :key="e.name"
-                                        @mousedown.prevent="selectEinrichtung(e.name)"
+                                        v-for="(dep, index) in filteredDepartments" 
+                                        :key="dep.name"
+                                        @mousedown.prevent="selectDepartment(dep.name)"
                                         class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 flex justify-between items-center gap-2 cursor-pointer"
-                                        :class="{ 'bg-zinc-800': index === einIndex }"
+                                        :class="{ 'bg-zinc-800': index === deptIndex }"
                                     >
-                                        <span class="truncate">{{ e.name }}</span>
-                                        <span class="text-zinc-500 text-[10px] shrink-0">{{ e.count }}×</span>
+                                        <span class="truncate">{{ dep.name }}</span>
+                                        <span class="text-zinc-500 text-[10px] shrink-0">{{ dep.count }}×</span>
                                     </button>
-                                    <div v-if="filteredEinrichtungen.length === 0" class="px-3 py-2 text-zinc-500">
+                                    <div v-if="filteredDepartments.length === 0" class="px-3 py-2 text-zinc-500">
                                         Keine Department vorhanden.
                                     </div>
                                 </div>
@@ -973,7 +973,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const newNoteContent = ref('')
                 const newNoteChecklist = ref([])
                 const newNoteStepText = ref('')
-                const newNoteEinrichtung = ref('')
+                const newNoteDepartment = ref('')
                 const isNewNoteOpen = ref(false)
                 const newNoteTitleInputRef = ref(null)
                 const newNoteTextareaRef = ref(null)
@@ -1007,12 +1007,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const autocompleteContainerRef = ref(null)
                 const exportMenuOpen = ref(false)
 
-                // Einrichtungs-Vorschläge (für Neue-Notiz-Maske & Detail-Modal)
-                const einrichtungen = ref([])
-                const einDropdownOpen = ref(false)
-                const einDropdownSource = ref('')
-                const einIndex = ref(0)
-                const newNoteEinrichtungInputRef = ref(null)
+                // Departments-Vorschläge (für Neue-Notiz-Maske & Detail-Modal)
+                const departments = ref([])
+                const deptDropdownOpen = ref(false)
+                const deptDropdownSource = ref('')
+                const deptIndex = ref(0)
+                const newNoteDepartmentInputRef = ref(null)
 
                 const contextMenu = ref({
                     show: false,
@@ -1070,74 +1070,74 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                const fetchEinrichtungen = async () => {
+                const fetchDepartments = async () => {
                     try {
-                        const res = await fetch('/api/einrichtungen')
+                        const res = await fetch('/api/departments')
                         if (res.ok) {
-                            einrichtungen.value = await res.json()
+                            departments.value = await res.json()
                         }
                     } catch (e) {
-                        console.error('Fehler beim Laden der Einrichtungen', e)
+                        console.error('Fehler beim Laden der Departments', e)
                     }
                 }
 
-                const einContext = computed(() => {
-                    if (einDropdownSource.value === 'modal') {
+                const deptContext = computed(() => {
+                    if (deptDropdownSource.value === 'modal') {
                         return {
-                            val: () => activeNote.value ? (activeNote.value.einrichtung || '') : '',
-                            set: (v) => { if (activeNote.value) activeNote.value.einrichtung = v }
+                            val: () => activeNote.value ? (activeNote.value.department || '') : '',
+                            set: (v) => { if (activeNote.value) activeNote.value.department = v }
                         }
                     }
                     return {
-                        val: () => newNoteEinrichtung.value,
-                        set: (v) => { newNoteEinrichtung.value = v }
+                        val: () => newNoteDepartment.value,
+                        set: (v) => { newNoteDepartment.value = v }
                     }
                 })
 
-                const filteredEinrichtungen = computed(() => {
-                    const q = einContext.value.val().trim().toLowerCase()
-                    if (!q) return einrichtungen.value.slice(0, 8)
-                    return einrichtungen.value
-                        .filter(e => e.name.toLowerCase().includes(q))
+                const filteredDepartments = computed(() => {
+                    const q = deptContext.value.val().trim().toLowerCase()
+                    if (!q) return departments.value.slice(0, 8)
+                    return departments.value
+                        .filter(dep => dep.name.toLowerCase().includes(q))
                         .slice(0, 8)
                 })
 
                 const openEinDropdown = (source) => {
-                    einDropdownSource.value = source
-                    einIndex.value = 0
-                    einDropdownOpen.value = true
+                    deptDropdownSource.value = source
+                    deptIndex.value = 0
+                    deptDropdownOpen.value = true
                 }
 
                 const closeEinDropdown = () => {
-                    einDropdownOpen.value = false
+                    deptDropdownOpen.value = false
                 }
 
-                const selectEinrichtung = (name) => {
-                    einContext.value.set(name)
+                const selectDepartment = (name) => {
+                    deptContext.value.set(name)
                     closeEinDropdown()
                 }
 
                 const onEinInput = () => {
-                    einIndex.value = 0
+                    deptIndex.value = 0
                 }
 
                 const handleEinKeydown = (e) => {
-                    if (!einDropdownOpen.value) return
-                    const items = filteredEinrichtungen.value
+                    if (!deptDropdownOpen.value) return
+                    const items = filteredDepartments.value
                     if (e.key === 'ArrowDown') {
                         e.preventDefault()
                         if (items.length === 0) return
-                        einIndex.value = (einIndex.value + 1) % items.length
+                        deptIndex.value = (deptIndex.value + 1) % items.length
                     } else if (e.key === 'ArrowUp') {
                         e.preventDefault()
                         if (items.length === 0) return
-                        einIndex.value = (einIndex.value - 1 + items.length) % items.length
+                        deptIndex.value = (deptIndex.value - 1 + items.length) % items.length
                     } else if (e.key === 'Enter') {
                         e.preventDefault()
                         e.stopPropagation()
                         if (items.length > 0) {
-                            if (einIndex.value >= items.length) einIndex.value = items.length - 1
-                            selectEinrichtung(items[einIndex.value].name)
+                            if (deptIndex.value >= items.length) deptIndex.value = items.length - 1
+                            selectDepartment(items[deptIndex.value].name)
                         }
                     } else if (e.key === 'Escape') {
                         e.preventDefault()
@@ -1187,7 +1187,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 onMounted(() => {
                     fetchNotes()
-                    fetchEinrichtungen()
+                    fetchDepartments()
                     window.addEventListener('keydown', handleGlobalKeydown, { capture: true })
                 })
 
@@ -1228,7 +1228,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     newNoteContent.value = ''
                     newNoteChecklist.value = []
                     newNoteStepText.value = ''
-                    newNoteEinrichtung.value = ''
+                    newNoteDepartment.value = ''
                     closeEinDropdown()
                 }
 
@@ -1243,7 +1243,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 const handleNewNoteEnter = (e) => {
-                    if (einDropdownOpen.value) return
+                    if (deptDropdownOpen.value) return
                     if (e.target && (e.target.tagName === 'SELECT' || e.target.tagName === 'BUTTON')) return
                     if (newNoteStepInputRef.value && e.target === newNoteStepInputRef.value) return
                     if (newNoteTextareaRef.value && e.target === newNoteTextareaRef.value) return
@@ -1269,13 +1269,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 status: newNoteStatus.value,
                                 priority: newNotePriority.value,
                                 due_date: newNoteDueDate.value || null,
-                                einrichtung: newNoteEinrichtung.value.trim() || null
+                                department: newNoteDepartment.value.trim() || null
                             })
                         })
                         if (res.ok) {
                             const createdNote = await res.json()
                             notes.value.push(createdNote)
-                            fetchEinrichtungen()
+                            fetchDepartments()
                             closeNewNote()
                         }
                     } catch (e) {
@@ -1298,7 +1298,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (notes.value.length === 0) return
                     let csvContent = "data:text/csv;charset=utf-8,ID,Title,Status,Priority,Date,DueDate,Department\r\n";
                     notes.value.forEach(note => {
-                        let row = [note.id, `"${note.title.replace(/"/g, '""')}"`, note.status, note.priority, note.date, note.due_date || '', `"${(note.einrichtung || '').replace(/"/g, '""')}"`];
+                        let row = [note.id, `"${note.title.replace(/"/g, '""')}"`, note.status, note.priority, note.date, note.due_date || '', `"${(note.department || '').replace(/"/g, '""')}"`];
                         csvContent += row.join(",") + "\r\n";
                     });
                     const encodedUri = encodeURI(csvContent);
@@ -1551,7 +1551,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         if (res.ok) {
                             const newNote = await res.json()
                             notes.value.push(newNote)
-                            fetchEinrichtungen()
+                            fetchDepartments()
                         }
                     } catch (e) {
                         console.error('Fehler beim Duplizieren', e)
@@ -1709,7 +1709,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 status: activeNote.value.status,
                                 priority: activeNote.value.priority,
                                 due_date: activeNote.value.due_date || null,
-                                einrichtung: activeNote.value.einrichtung || null
+                                department: activeNote.value.department || null
                             })
                         })
                         if (res.ok) {
@@ -1717,7 +1717,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             if (index !== -1) {
                                 notes.value[index] = { ...activeNote.value, content: serializedContent }
                             }
-                            fetchEinrichtungen()
+                            fetchDepartments()
                             closeModal()
                         }
                     } catch (e) {
@@ -1787,7 +1787,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         prio: [],
                         datum: [],
                         faellig: [],
-                        einrichtung: []
+                        department: []
                     }
                     // Tokens erkennen key:value (Wert darf .. oder Datumszeichen enthalten, kein Leerzeichen)
                     const tokens = raw.match(/(\w+):([^\s]+)/g) || []
@@ -1805,7 +1805,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         else if (key === 'prio' || key === 'priority') result.prio.push(val)
                         else if (key === 'datum' || key === 'date') result.datum.push(val)
                         else if (key === 'faellig' || key === 'due' || key === 'due_date' || key === 'fällig') result.faellig.push(val)
-                        else if (key === 'einrichtung' || key === 'einr') result.einrichtung.push(val)
+                        else if (key === 'dep' || key === 'department') result.department.push(val)
                         else result.freeText.push(tok)
                     })
                     // Übrig bleibende freie Texte
@@ -1871,7 +1871,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 const matchesNote = (note, q) => {
                     if (q.freeText.length) {
-                        const haystack = (note.title + ' ' + (note.einrichtung || '') + ' ' + notePlainContent(note)).toLowerCase()
+                        const haystack = (note.title + ' ' + (note.department || '') + ' ' + notePlainContent(note)).toLowerCase()
                         if (!q.freeText.every(t => haystack.includes(t.toLowerCase()))) return false
                     }
                     if (q.titel.length) {
@@ -1882,9 +1882,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         const content = notePlainContent(note).toLowerCase()
                         if (!q.inhalt.every(t => content.includes(t.toLowerCase()))) return false
                     }
-                    if (q.einrichtung.length) {
-                        const ein = (note.einrichtung || '').toLowerCase()
-                        if (!q.einrichtung.every(t => ein.includes(t.toLowerCase()))) return false
+                    if (q.department.length) {
+                        const dep = (note.department || '').toLowerCase()
+                        if (!q.department.every(t => dep.includes(t.toLowerCase()))) return false
                     }
                     if (q.status.length) {
                         const resolved = q.status.map(s => STATUS_ALIASES[s.trim().toLowerCase()]).filter(Boolean)
@@ -1963,8 +1963,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     newNoteContent,
                     newNoteChecklist,
                     newNoteStepText,
-                    newNoteEinrichtung,
-                    newNoteEinrichtungInputRef,
+                    newNoteDepartment,
+                    newNoteDepartmentInputRef,
                     isNewNoteOpen,
                     newNoteTitleInputRef,
                     newNoteTextareaRef,
@@ -2032,14 +2032,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     handleNoteLinkClick,
                     focusSearchInput,
                     processNoteLinks,
-                    einrichtungen,
-                    filteredEinrichtungen,
-                    einDropdownOpen,
-                    einDropdownSource,
-                    einIndex,
+                    departments,
+                    filteredDepartments,
+                    deptDropdownOpen,
+                    deptDropdownSource,
+                    deptIndex,
                     openEinDropdown,
                     closeEinDropdown,
-                    selectEinrichtung,
+                    selectDepartment,
                     onEinInput,
                     handleEinKeydown
                 }

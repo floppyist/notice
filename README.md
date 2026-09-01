@@ -67,7 +67,7 @@ datum:2026-09-01            # oder datum today / none / any / this_week
 faellig:overdue             # oder due / due_date
 faellig:>=2026-09-01
 faellig:2026-09-01..2026-09-30
-einrichtung:Küche
+dep:Küche
 titel:Teiltext
 inhalt:Schlüsselwort
 ```
@@ -96,7 +96,7 @@ Beispiel `POST /api/notes`:
   "status": "backlog",
   "priority": "medium",
   "due_date": "2026-09-30",
-  "einrichtung": "Küche"
+  "department": "Küche"
 }
 ```
 
@@ -106,7 +106,7 @@ Beispiel `POST /api/notes`:
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/api/einrichtungen` | Liste der vorhandenen Departments als `[{name, count}]`, nach Häufigkeit sortiert und case-insensitiv dedupliziert |
+| `GET` | `/api/departments` | Liste der vorhandenen Departments als `[{name, count}]`, nach Häufigkeit sortiert und case-insensitiv dedupliziert |
 
 ## Datenmodell
 
@@ -121,7 +121,7 @@ Die Tabelle `notes` enthält:
 | `priority` | TEXT | `low`, `medium`, `high` |
 | `date` | TEXT | Erstellungsdatum (TT.MM.JJJJ) |
 | `due_date` | TEXT | Optionales Fälligkeitsdatum (YYYY-MM-DD) |
-| `einrichtung` | TEXT | Optionales Department (case-insensitiv dedupliziert; interner Spaltenname) |
+| `department` | TEXT | Optionales Department (case-insensitiv dedupliziert) |
 | `sort_order` | INTEGER | Sortierung innerhalb einer Spalte |
 
 ## Projektstruktur
