@@ -397,13 +397,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
         <main class="flex-1 flex gap-1.5 p-2 overflow-hidden bg-zinc-950">
 
-            <!-- Links: vertikaler Tab-Stapel für minimierte Status -->
-            <div v-if="collapsedStatuses.length > 0" class="flex flex-col gap-1.5 shrink-0 overflow-y-auto">
+            <!-- Links: vertikaler Tab-Stapel für minimierte Status (Hintergrund wie Archiv) -->
+            <div v-if="collapsedStatuses.length > 0" class="bg-zinc-900/70 border border-zinc-800 flex flex-col items-center h-full overflow-y-auto shrink-0" style="width:40px">
                 <div 
                     v-for="status in collapsedStatuses" 
                     :key="status.id"
-                    class="bg-zinc-900/70 border border-zinc-800 flex flex-col items-center py-1.5 shrink-0"
-                    style="width:40px"
+                    class="flex flex-col items-center py-2 w-full shrink-0"
                 >
                     <button 
                         @click="expandColumn(status.id)"
