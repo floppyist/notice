@@ -85,27 +85,27 @@ async fn main() {
     .await
     .expect("Fehler beim Erstellen der Tabelle");
 
-    // Migration: sort_order falls vorhandene Tabelle die Spalte fehlt
+    // Migration: add sort_order if an existing table is missing the column
     let _ = sqlx::query("ALTER TABLE notes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         .execute(&pool)
         .await;
 
-    // Migration: vorhandene Bestands-DBs nutzen noch den alten Spaltennamen "einrichtung"
+    // Migration: existing databases still use the old column name "einrichtung"
     let _ = sqlx::query("ALTER TABLE notes RENAME COLUMN einrichtung TO department")
         .execute(&pool)
         .await;
 
-    // Migration: departments (JSON-Array) Spalte hinzufügen
+    // Migration: add departments (JSON array) column
     let _ = sqlx::query("ALTER TABLE notes ADD COLUMN departments TEXT")
         .execute(&pool)
         .await;
 
-    // Migration: appointments (JSON-Array) Spalte hinzufügen
+    // Migration: add appointments (JSON array) column
     let _ = sqlx::query("ALTER TABLE notes ADD COLUMN appointments TEXT")
         .execute(&pool)
         .await;
 
-    // Migration: bestehende department-Einzelwerte in departments JSON-Array migrieren
+    // Migration: migrate existing single department values into the departments JSON array
     let _ = sqlx::query(
         r#"
         UPDATE notes
@@ -118,7 +118,7 @@ async fn main() {
     .execute(&pool)
     .await;
 
-    // Migration: leere department-Einträge auf JSON-Array-Leer setzen
+    // Migration: set empty department values to an empty JSON array
     let _ = sqlx::query(
         r#"
         UPDATE notes
@@ -257,7 +257,7 @@ async fn create_note(
     let departments = payload.departments;
     let appointments = payload.appointments;
 
-    // sort_order: größter Wert in der Spalte + 1
+    // sort_order: maximum value in the column + 1
     let max_sort: Result<Option<i64>, _> =
         sqlx::query_scalar("SELECT MAX(sort_order) FROM notes WHERE status = ?")
             .bind(&status)
@@ -577,7 +577,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             <!-- BOARD VIEW -->
             <template v-if="activeView === 'board'">
 
-            <!-- Links: vertikaler Tab-Stapel für minimierte Status (Hintergrund wie Archiv) -->
+            <!-- Left: vertical tab stack for minimized columns (archive-like background) -->
             <div v-if="collapsedStatuses.length > 0" class="bg-zinc-900/70 border border-zinc-800 flex flex-col items-center h-full overflow-y-auto shrink-0" style="width:40px">
                 <div 
                     v-for="status in collapsedStatuses" 
@@ -595,7 +595,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 </div>
             </div>
 
-            <!-- Mitte: erweiterte Spalten als Grid -->
+            <!-- Center: expanded columns as a grid -->
             <div 
                 class="flex-1 grid gap-1.5 overflow-hidden transition-all duration-300 min-w-0"
                 :style="{ gridTemplateColumns: gridColsStyle }"
@@ -813,7 +813,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
         </main>
 
-        <!-- Neue Notiz Maske -->
+        <!-- New note form -->
         <div v-if="isNewNoteOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @keydown.enter="handleNewNoteEnter">
             <div class="bg-zinc-900 border border-zinc-700 w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl" @click.stop>
                 <div class="bg-zinc-900 border-b border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
@@ -874,10 +874,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         v-model="newNoteDeptInput"
                                         placeholder="Department hinzufügen..." 
                                         autocomplete="off"
-                                        @focus="openEinDropdown('new')"
-                                        @input="onEinInput"
-                                        @keydown="handleEinKeydown"
-                                        @blur="closeEinDropdown"
+                                        @focus="openDeptDropdown('new')"
+                                        @input="onDeptInput"
+                                        @keydown="handleDeptKeydown"
+                                        @blur="closeDeptDropdown"
                                         class="bg-transparent text-xs text-zinc-100 flex-1 min-w-[80px] outline-none"
                                     >
                                 </div>
@@ -968,7 +968,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <!-- Termine (Appointments) -->
+                    <!-- Appointments -->
                     <div class="bg-zinc-900 border border-zinc-800 p-2.5">
                         <span class="text-[11px] font-bold text-zinc-300 uppercase mb-2 block border-b border-zinc-800 pb-1">Termine</span>
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
@@ -1058,10 +1058,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         v-model="modalDeptInput"
                                         placeholder="Hinzufügen..." 
                                         autocomplete="off"
-                                        @focus="openEinDropdown('modal')"
-                                        @input="onEinInput"
-                                        @keydown="handleEinKeydown"
-                                        @blur="closeEinDropdown"
+                                        @focus="openDeptDropdown('modal')"
+                                        @input="onDeptInput"
+                                        @keydown="handleDeptKeydown"
+                                        @blur="closeDeptDropdown"
                                         class="bg-transparent text-[11px] text-zinc-200 flex-1 min-w-[60px] outline-none"
                                     >
                                 </div>
@@ -1098,7 +1098,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     </div>
                 </div>
 
-                <!-- Inhalt & Checklisten-Bereich -->
+                <!-- Content & checklist area -->
                 <div class="flex-1 grid grid-cols-1 md:grid-cols-3 p-3 gap-3 overflow-hidden bg-zinc-950 relative">
                     <div class="md:col-span-2 h-full flex flex-col relative">
                         <textarea 
@@ -1113,7 +1113,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             placeholder="Inhalt mit Markdown schreiben... (Rechtsklick für Text-Formatierung)"
                             class="w-full h-full bg-zinc-900 border border-zinc-800 text-zinc-200 p-2.5 text-xs font-mono resize-none focus:outline-none focus:border-zinc-600"
                         ></textarea>
-                        <!-- Unsichtbarer Caret-Spiegel zur Berechnung der Cursorkoordinaten -->
+                        <!-- Invisible caret mirror for computing cursor coordinates -->
                         <div ref="caretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
                         <div 
                              v-if="isPreviewMode" 
@@ -1122,7 +1122,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                              @click="handleNoteLinkClick">
                         </div>
 
-                        <!-- Autocomplete Dropdown für [[ Links -->
+                        <!-- Autocomplete dropdown for [[ links -->
                         <div 
                             v-if="showAutocomplete"
                             :style="{ top: autocompletePos.y + 'px', left: autocompletePos.x + 'px' }"
@@ -1148,7 +1148,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             </div>
                         </div>
 
-                        <!-- Kontextmenü (Rechtsklick) -->
+                        <!-- Context menu (right-click) -->
                         <div 
                             v-if="contextMenu.show" 
                             :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
@@ -1166,7 +1166,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <!-- Zwischensteps / Checklist + Termine -->
+                    <!-- Steps / checklist + appointments -->
                     <div class="flex flex-col gap-3 overflow-y-auto pr-1">
                         <div class="bg-zinc-900 border border-zinc-800 p-2.5 flex flex-col">
                             <span class="text-[11px] font-bold text-zinc-300 uppercase mb-2 block border-b border-zinc-800 pb-1">Checklist / Steps</span>
@@ -1192,7 +1192,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             </div>
                         </div>
 
-                        <!-- Termine in Modal -->
+                        <!-- Appointments in modal -->
                         <div class="bg-zinc-900 border border-zinc-800 p-2.5 flex flex-col">
                             <span class="text-[11px] font-bold text-zinc-300 uppercase mb-2 block border-b border-zinc-800 pb-1">Termine</span>
                             <div class="flex flex-col gap-1 mb-2">
@@ -1286,13 +1286,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const modalAptEndTime = ref('')
                 const modalAptHasEnd = ref(false)
 
-                // Kalender-Ansicht
+                // Calendar view
                 const activeView = ref('board')
                 const calViewMode = ref('month')
                 const calCursor = ref(new Date())
                 const calSelectedDay = ref(null)
 
-                // Autocomplete state für [[ Links
+                // Autocomplete state for [[ links
                 const showAutocomplete = ref(false)
                 const autocompleteResults = ref([])
                 const autocompleteIndex = ref(0)
@@ -1303,7 +1303,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const autocompleteContainerRef = ref(null)
                 const exportMenuOpen = ref(false)
 
-                // Departments-Vorschläge (für Neue-Notiz-Maske & Detail-Modal)
+                // Department suggestions (for new note form & detail modal)
                 const departments = ref([])
                 const deptDropdownOpen = ref(false)
                 const deptDropdownSource = ref('')
@@ -1401,13 +1401,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         .slice(0, 8)
                 })
 
-                const openEinDropdown = (source) => {
+                const openDeptDropdown = (source) => {
                     deptDropdownSource.value = source
                     deptIndex.value = 0
                     deptDropdownOpen.value = true
                 }
 
-                const closeEinDropdown = () => {
+                const closeDeptDropdown = () => {
                     deptDropdownOpen.value = false
                 }
 
@@ -1415,21 +1415,21 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (deptDropdownSource.value === 'modal') {
                         if (activeNoteDepartments.value.some(d => d.toLowerCase() === name.toLowerCase())) {
                             modalDeptInput.value = ''
-                            closeEinDropdown()
+                            closeDeptDropdown()
                             return
                         }
                         activeNoteDepartments.value.push(name)
                     } else {
                         if (newNoteDepartments.value.some(d => d.toLowerCase() === name.toLowerCase())) {
                             newNoteDeptInput.value = ''
-                            closeEinDropdown()
+                            closeDeptDropdown()
                             return
                         }
                         newNoteDepartments.value.push(name)
                     }
                     if (deptDropdownSource.value === 'modal') modalDeptInput.value = ''
                     else newNoteDeptInput.value = ''
-                    closeEinDropdown()
+                    closeDeptDropdown()
                 }
 
                 const addCustomDepartment = (source) => {
@@ -1457,11 +1457,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     activeNoteDepartments.value.splice(index, 1)
                 }
 
-                const onEinInput = () => {
+                const onDeptInput = () => {
                     deptIndex.value = 0
                 }
 
-                const handleEinKeydown = (e) => {
+                const handleDeptKeydown = (e) => {
                     const items = filteredDepartments.value
                     if (e.key === 'ArrowDown') {
                         if (!deptDropdownOpen.value) return
@@ -1487,7 +1487,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     } else if (e.key === 'Escape') {
                         if (deptDropdownOpen.value) e.preventDefault()
                         e.stopPropagation()
-                        closeEinDropdown()
+                        closeDeptDropdown()
                     }
                 }
 
@@ -1583,7 +1583,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     newAptTime.value = ''
                     newAptEndTime.value = ''
                     newAptHasEnd.value = false
-                    closeEinDropdown()
+                    closeDeptDropdown()
                 }
 
                 const addNewNoteStep = () => {
@@ -1732,7 +1732,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     clearTimeout(autocompleteTimer)
                 }
 
-                // Kontextmenü Logik
+                // Context menu logic
                 const openContextMenu = (e) => {
                     if (!textareaRef.value) return
                     const rect = e.target.getBoundingClientRect()
@@ -1750,7 +1750,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     exportMenuOpen.value = false
                 }
 
-                // --- Autocomplete für [[ Notiz-Links ---
+                // --- Autocomplete for [[ note links ---
                 const searchNotesAutocomplete = async (q) => {
                     try {
                         const res = await fetch(`/api/notes/search?q=${encodeURIComponent(q)}`)
@@ -1792,17 +1792,17 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     const colLines = before.split('\n')
                     const col = colLines[colLines.length - 1].length
 
-                    // Spiegel aktualisieren: Text mit Markier-Span an der Cursorposition
+                    // Update the caret mirror: text with a marking span at the cursor position
                     let html = ''
                     for (let i = 0; i < colLines.length; i++) {
                         const chunk = colLines[i]
                         if (i < colLines.length - 1) {
                             html += chunk.replace(/</g, '&lt;') + '\n'
                         } else {
-                            // letzte Zeile
+                            // last line
                             const colonIdx = chunk.lastIndexOf(':')
                             if (colonIdx >= col) {
-                                // Cursor in der Zeile, Marker nach prefix setzen
+                                // cursor on this line, place marker after the prefix
                                 html += chunk.substring(0, col).replace(/</g, '&lt;')
                                 html += '<span id="caret-marker">a</span>'
                             } else {
@@ -1820,7 +1820,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     const x = markRect.left - taRect.left
                     const y = markRect.top - taRect.top
 
-                    // Flippen: wenn oberhalb genügend Platz / unterhalb nicht, Dropdown nach oben
+                    // Flip: if there is enough space above / not below, show the dropdown upward
                     const container = ta.closest('.md\\:col-span-2') || ta.parentElement
                     const containerHeight = container ? container.clientHeight : 300
                     const estHeight = Math.min(224, (autocompleteResults.value.length * 26) + 30)
@@ -1854,29 +1854,29 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const handleAutocomplete = () => {
                     const ta = acTextarea()
                     if (!ta) return
-                    // Bevorzugt den DOM-Wert (Quelle der Wahrheit), da v-model evtl. noch nicht synchron ist.
-                    // Falls der DOM-Wert deutlich kürzer als der Cursor ist (v-model noch nicht angekommen),
-                    // nutze den DOM-Wert direkt.
+                    // Prefer the DOM value (source of truth) since v-model may not be in sync yet.
+                    // If the DOM value is significantly shorter than the cursor (v-model hasn't caught up),
+                    // use the DOM value directly.
                     const text = acTextareaValue()
                     const cursor = ta.selectionStart
 
-                    // Wenn der Cursor über dem Textinhalt liegt (v-model noch nicht synchron),
-                    // den Text nah am Cursor als Quelle nutzen, um [[ zu finden
+                    // If the cursor is beyond the current text content (v-model not yet in sync),
+                    // use the text near the cursor as source to find [[
                     const effectiveCursor = Math.min(cursor, text.length)
 
-                    // Rückwärts suchen nach "[["
+                    // Search backwards for "[["
                     const lastOpen = text.lastIndexOf('[[', effectiveCursor)
                     if (lastOpen === -1) {
                         showAutocomplete.value = false
                         return
                     }
-                    // Wenn "]]" zwischen [[ und Cursor liegt, schließen
+                    // Close if "]]" lies between [[ and the cursor
                     const between = text.substring(lastOpen + 2, effectiveCursor)
                     if (between.includes(']]')) {
                         showAutocomplete.value = false
                         return
                     }
-                    // Nach "|" abbrechen (Anzeige-Titel wird typisiert)
+                    // Stop after "|" (display title is being typed)
                     if (between.includes('|')) {
                         showAutocomplete.value = false
                         return
@@ -1899,11 +1899,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     const text = acTextareaValue()
                     const cursor = Math.min(ta.selectionStart, text.length)
                     const start = Math.min(autocompleteStart.value, cursor)
-                    // Ersetze [[partial durch [[Vollständiger Titel
+                    // Replace [[partial with [[Full title
                     const newText = text.substring(0, start) + selected.title + ']]' + text.substring(cursor)
                     acSetContent(newText)
                     showAutocomplete.value = false
-                    // Cursor hinter ]]
+                    // Move the cursor after ]]
                     requestAnimationFrame(() => {
                         if (ta) {
                             const newCursor = start + selected.title.length + 2
@@ -1928,7 +1928,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                // --- Notiz-Links im Preview: [[Titel|Anzeige-Name]] ---
+                // --- Note links in preview: [[Title|Display-Name]] ---
                 const processNoteLinks = (html) => {
                     return html.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (match, title, display) => {
                         const safeTitle = title.replace(/"/g, '&quot;')
@@ -1950,7 +1950,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                // --- Notiz duplizieren ---
+                // --- Duplicate note ---
                 const duplicateNote = async (note) => {
                     try {
                         const res = await fetch(`/api/notes/${note.id}/duplicate`, { method: 'POST' })
@@ -1964,7 +1964,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                // --- Archivieren / Wiederherstellen ---
+                // --- Archive / restore ---
                 const archiveNote = async (note) => {
                     await updateNoteStatus(note, 'archived')
                 }
@@ -1996,7 +1996,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                // --- Drag & Drop Sortierung ---
+                // --- Drag & drop sorting ---
                 let dragOverNote = null
 
                 const onDragOver = (note, e) => {
@@ -2008,18 +2008,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         .filter(n => n.status === columnId)
                         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
 
-                    // Entferne das gezogene Element
+                    // Remove the dragged element
                     const fromIndex = colNotes.findIndex(n => n.id === dragged.id)
                     if (fromIndex !== -1) colNotes.splice(fromIndex, 1)
 
-                    // Finde Ziel-Index
+                    // Find the target index
                     let toIndex = colNotes.findIndex(n => n.id === target.id)
                     if (toIndex === -1) toIndex = colNotes.length
 
-                    // Einfügen
+                    // Insert
                     colNotes.splice(toIndex, 0, dragged)
 
-                    // Neue sort_order zuweisen
+                    // Assign new sort_order values
                     const updates = colNotes.map((n, i) => {
                         if ((n.sort_order || 0) !== i || n.id === dragged.id) {
                             return { id: n.id, sort_order: i }
@@ -2027,11 +2027,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         return null
                     }).filter(Boolean)
 
-                    // Lokal aktualisieren
+                    // Update locally
                     colNotes.forEach((n, i) => { n.sort_order = i })
                     dragged.status = columnId
 
-                    // API aktualisieren
+                    // Update the API
                     await Promise.all(updates.map(async (u) => {
                         const n = notes.value.find(x => x.id === u.id)
                         if (!n) return
@@ -2143,7 +2143,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                // --- Such-Syntax: key:value Parser ---
+                // --- Search syntax: key:value parser ---
                 const STATUS_ALIASES = {
                     'backlog': 'backlog',
                     'in_progress': 'in_progress',
@@ -2176,7 +2176,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     // DD.MM.YYYY
                     m = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
                     if (m) return new Date(+m[3], +m[2] - 1, +m[1]).getTime()
-                    // YYYY-MM-DD ohne führende Nullen tolerant
+                    // YYYY-MM-DD tolerant to leading zeros being omitted
                     m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
                     if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime()
                     return null
@@ -2196,7 +2196,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         faellig: [],
                         department: []
                     }
-                    // Tokens erkennen key:value (Wert darf .. oder Datumszeichen enthalten, kein Leerzeichen)
+                    // Detect key:value tokens (value may contain ".." or date characters, no whitespace)
                     const tokens = raw.match(/(\w+):([^\s]+)/g) || []
                     let rest = raw
                     tokens.forEach(tok => {
@@ -2204,7 +2204,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         const valStart = tok.indexOf(':') + 1
                         const val = tok.substring(valStart)
                         const key = tok.substring(0, tok.indexOf(':')).toLowerCase()
-                        // bereich: key:value
+                        // Strip the matched token from the remainder for free-text matching
                         rest = rest.replace(tok, ' ')
                         if (key === 'titel' || key === 'title') result.titel.push(val)
                         else if (key === 'inhalt' || key === 'content') result.inhalt.push(val)
@@ -2215,7 +2215,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         else if (key === 'dep' || key === 'department') result.department.push(val)
                         else result.freeText.push(tok)
                     })
-                    // Übrig bleibende freie Texte
+                    // Remaining free-text tokens
                     const freeTokens = rest.split(/\s+/).filter(t => t.trim() !== '')
                     result.freeText.push(...freeTokens)
                     return result
@@ -2354,7 +2354,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     return true
                 }
 
-                // --- Kalender-Logik ---
+                // --- Calendar logic ---
                 const dateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
                 const fmtDate = (v) => {
@@ -2535,10 +2535,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
 
                     if (dragged.status === columnId && targetNote) {
-                        // Reorder innerhalb derselben Spalte
+                        // Reorder within the same column
                         await reorderColumn(columnId, dragged, targetNote)
                     } else if (dragged.status !== columnId) {
-                        // Über Spalte wechseln, an Ende anhängen
+                        // Cross-column move, append to end
                         dragged.status = columnId
                         const maxSort = notes.value
                             .filter(n => n.status === columnId && n.id !== dragged.id)
@@ -2673,11 +2673,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     deptDropdownOpen,
                     deptDropdownSource,
                     deptIndex,
-                    openEinDropdown,
-                    closeEinDropdown,
+                    openDeptDropdown,
+                    closeDeptDropdown,
                     selectDepartment,
-                    onEinInput,
-                    handleEinKeydown,
+                    onDeptInput,
+                    handleDeptKeydown,
                     calViewMode,
                     calCursor,
                     calSelectedDay,
