@@ -423,16 +423,30 @@ async fn duplicate_note(
 }
 
 const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
-<html lang="de">
+<html lang="de" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Notice - Pro Kanban Notes</title>
+    <script>
+        (function () {
+            try {
+                if (localStorage.getItem('notice-theme') === 'light') document.documentElement.classList.remove('dark')
+            } catch (e) {}
+            var origWarn = console.warn.bind(console)
+            console.warn = function () {
+                var s = Array.prototype.map.call(arguments, String).join(' ')
+                if (s.indexOf('cdn.tailwindcss.com should not be used in production') !== -1) return
+                origWarn.apply(console, arguments)
+            }
+        })()
+    </script>
     <script>__TAILWIND_JS__</script>
     <script>__VUE_JS__</script>
     <script>__MARKED_JS__</script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     borderRadius: { none: '0px', DEFAULT: '0px', sm: '0px', md: '0px', lg: '0px', xl: '0px', '2xl': '0px', '3xl': '0px', full: '0px' }
@@ -441,12 +455,48 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         }
     </script>
     <style>
+        :root {
+            --bg-page: #f4f4f5;
+            --bg-panel: #ffffff;
+            --bg-card: #18181b;
+            --border: #e4e4e7;
+            --border-hover: #a1a1aa;
+            --text: #18181b;
+            --text-muted: #52525b;
+            --text-faint: #71717a;
+            --code-bg: #f4f4f5;
+            --green: #059669;
+            --green-bright: #34d399;
+            --green-hover: #059669;
+            --blue: #2563eb;
+            --blue-bright: #93c5fd;
+            --red-bright: #ef4444;
+            --apt-bg: #f4f4f5;
+        }
+        html.dark {
+            --bg-page: #0d0d0f;
+            --bg-panel: #18181b;
+            --bg-card: #0d0d0f;
+            --border: #27272a;
+            --border-hover: #3f3f46;
+            --text: #d4d4d8;
+            --text-muted: #a1a1aa;
+            --text-faint: #71717a;
+            --code-bg: #27272a;
+            --green: #34d399;
+            --green-bright: #6ee7b7;
+            --green-hover: #6ee7b7;
+            --blue: #60a5fa;
+            --blue-bright: #93c5fd;
+            --red-bright: #fca5a5;
+            --apt-bg: #18181b;
+        }
         html, body {
             height: 100vh;
             margin: 0;
             overflow: hidden;
-            background-color: #0d0d0f;
-            color: #d4d4d8;
+            background-color: var(--bg-page);
+            color: var(--text);
             font-family: 'Courier New', Courier, Lucida Console, Monaco, monospace;
         }
         .markdown-body h1 { font-size: 1.15rem; font-weight: bold; margin-bottom: 0.4rem; }
@@ -454,11 +504,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         .markdown-body p { margin-bottom: 0.4rem; }
         .markdown-body ul { list-style-type: disc; padding-left: 1.1rem; margin-bottom: 0.4rem; }
         .markdown-body ol { list-style-type: decimal; padding-left: 1.1rem; margin-bottom: 0.4rem; }
-        .markdown-body code { background: #27272a; padding: 0.1rem 0.2rem; font-size: 0.8em; }
-        /* Benutzerdefinierte Farben für Markdown HTML-Ausgabe */
+        .markdown-body code { background: var(--code-bg); color: var(--text); padding: 0.1rem 0.2rem; font-size: 0.8em; }
+        /* User-defined colors for markdown HTML output */
         .markdown-body span[style*="color"] { opacity: 0.9; }
-        .note-link { color: #34d399; text-decoration: underline; cursor: pointer; }
-        .note-link:hover { color: #6ee7b7; background: rgba(52, 211, 153, 0.1); }
+        .note-link { color: var(--green); text-decoration: underline; cursor: pointer; }
+        .note-link:hover { color: var(--green-hover); background: rgba(52, 211, 153, 0.1); }
         .autocomplete-dropdown { position: absolute; z-index: 70; min-width: 220px; max-width: 320px; }
         .autocomplete-item { cursor: pointer; }
         .autocomplete-item.active { background: rgba(52, 211, 153, 0.15); }
@@ -479,7 +529,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             font-family: 'Courier New', Courier, Lucida Console, Monaco, monospace;
             background: rgba(14, 165, 233, 0.1);
             border: 1px solid rgba(14, 165, 233, 0.3);
-            color: rgb(125, 211, 252);
+            color: rgb(14, 165, 233);
         }
         .dept-tag-remove {
             cursor: pointer;
@@ -491,44 +541,50 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         .dept-tag-lg { font-size: 10px; padding: 2px 8px; }
         .dept-tag-sm { font-size: 8px; padding: 0px 4px; }
         .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-        .cal-header { font-size: 10px; text-transform: uppercase; color: #71717a; text-align: center; padding: 4px 0; border-bottom: 1px solid #27272a; }
-        .cal-day { min-height: 72px; padding: 3px 4px; border: 1px solid #27272a; font-size: 10px; position: relative; cursor: pointer; }
-        .cal-day:hover { background: rgba(63, 63, 70, 0.2); }
+        .cal-header { font-size: 10px; text-transform: uppercase; color: var(--text-faint); text-align: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
+        .cal-day { min-height: 72px; padding: 3px 4px; border: 1px solid var(--border); font-size: 10px; position: relative; cursor: pointer; }
+        .cal-day:hover { background: rgba(113, 113, 122, 0.15); }
         .cal-day-num { font-weight: bold; margin-bottom: 2px; }
-        .cal-day-num.today { color: #34d399; }
-        .cal-day-num.other-month { color: #52525b; }
+        .cal-day-num.today { color: var(--green); }
+        .cal-day-num.other-month { color: var(--text-faint); }
         .cal-dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; margin: 1px 1px 1px 0; }
         .cal-event-item { font-size: 9px; padding: 2px 4px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
-        .cal-event-due { background: rgba(59, 130, 246, 0.15); border-left: 2px solid #3b82f6; color: #93c5fd; }
-        .cal-event-apt { background: rgba(16, 185, 129, 0.15); border-left: 2px solid #10b981; color: #6ee7b7; }
-        .cal-event-overdue { background: rgba(239, 68, 68, 0.15); border-left: 2px solid #ef4444; color: #fca5a5; }
+        .cal-event-due { background: rgba(37, 99, 235, 0.12); border-left: 2px solid #3b82f6; color: var(--blue-bright); }
+        .cal-event-apt { background: rgba(5, 150, 105, 0.12); border-left: 2px solid #10b981; color: var(--green-bright); }
+        .cal-event-overdue { background: rgba(239, 68, 68, 0.12); border-left: 2px solid #ef4444; color: var(--red-bright); }
         .cal-week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-        .cal-week-col { border: 1px solid #27272a; min-height: 400px; padding: 2px; }
-        .cal-week-header { text-align: center; font-size: 10px; font-weight: bold; padding: 4px; border-bottom: 1px solid #27272a; }
-        .cal-week-header.today { color: #34d399; }
-        .apt-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #18181b; border: 1px solid #27272a; font-size: 11px; min-width: 0; overflow: hidden; }
-        .apt-item:hover { border-color: #3f3f46; }
+        .cal-week-col { border: 1px solid var(--border); min-height: 400px; padding: 2px; }
+        .cal-week-header { text-align: center; font-size: 10px; font-weight: bold; padding: 4px; border-bottom: 1px solid var(--border); }
+        .cal-week-header.today { color: var(--green); }
+        .apt-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--apt-bg); border: 1px solid var(--border); font-size: 11px; min-width: 0; overflow: hidden; }
+        .apt-item:hover { border-color: var(--border-hover); }
     </style>
 </head>
 <body>
     <div id="app" class="h-screen flex flex-col" @click="closeContextMenu">
-        <header class="bg-zinc-900 border-b border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-4">
-            <h1 class="text-xs font-bold tracking-widest text-emerald-400 flex items-center gap-2 shrink-0">
+        <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-4">
+            <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
                 <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.2
             </h1>
 
             <div class="flex gap-1 shrink-0">
                 <button 
                     @click="activeView = 'board'"
-                    :class="activeView === 'board' ? 'bg-zinc-700 text-zinc-100 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'"
+                    :class="activeView === 'board' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
                     class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
                     BOARD
                 </button>
                 <button 
                     @click="activeView = 'calendar'"
-                    :class="activeView === 'calendar' ? 'bg-zinc-700 text-zinc-100 border-zinc-600' : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:text-zinc-300'"
+                    :class="activeView === 'calendar' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
                     class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
                     KALENDER
+                </button>
+                <button 
+                    @click="toggleTheme" 
+                    :title="isDark ? 'Zum hellen Modus wechseln' : 'Zum dunklen Modus wechseln'"
+                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    {{ isDark ? '☀' : '☾' }}
                 </button>
             </div>
 
@@ -538,33 +594,33 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     type="text" 
                     v-model="searchQuery" 
                     placeholder="Suchen (Strg+K)..." 
-                    class="bg-zinc-950 border border-zinc-700 px-2.5 py-1 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 flex-1 min-w-0"
+                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 flex-1 min-w-0"
                 >
                 <button 
                     @click="openNewNote" 
-                    class="bg-emerald-700 hover:bg-emerald-600 text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors shrink-0">
+                    class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors shrink-0">
                     + HINZUFÜGEN
                 </button>
                 <div class="relative shrink-0">
                     <button 
                         @click.stop="exportMenuOpen = !exportMenuOpen" 
                         :disabled="notes.length === 0"
-                        :class="notes.length === 0 ? 'opacity-40 cursor-not-allowed bg-zinc-900 border-zinc-800 text-zinc-600' : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700 cursor-pointer'"
+                        :class="notes.length === 0 ? 'opacity-40 cursor-not-allowed bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600' : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 cursor-pointer'"
                         class="px-2.5 py-1 text-xs border">
                         Export ▾
                     </button>
                     <div 
                         v-if="exportMenuOpen"
-                        class="absolute right-0 top-full mt-1 bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 min-w-[140px]"
+                        class="absolute right-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 min-w-[140px]"
                     >
                         <button 
-                            @click="exportJson; exportMenuOpen = false" 
-                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 cursor-pointer">
+                            @click="exportJson(); exportMenuOpen = false" 
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
                             Als JSON
                         </button>
                         <button 
-                            @click="exportCsv; exportMenuOpen = false" 
-                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 cursor-pointer">
+                            @click="exportCsv(); exportMenuOpen = false" 
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
                             Als CSV
                         </button>
                     </div>
@@ -572,26 +628,26 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             </div>
         </header>
 
-        <main class="flex-1 flex gap-1.5 p-2 overflow-hidden bg-zinc-950">
+        <main class="flex-1 flex gap-1.5 p-2 overflow-hidden bg-zinc-100 dark:bg-zinc-950">
 
             <!-- BOARD VIEW -->
             <template v-if="activeView === 'board'">
 
             <!-- Left: vertical tab stack for minimized columns (archive-like background) -->
-            <div v-if="collapsedStatuses.length > 0" class="bg-zinc-900/70 border border-zinc-800 flex flex-col items-center h-full overflow-y-auto shrink-0" style="width:40px">
+            <div v-if="collapsedStatuses.length > 0" class="bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800 flex flex-col items-center h-full overflow-y-auto shrink-0" style="width:40px">
                 <div 
                     v-for="status in collapsedStatuses" 
                     :key="status.id"
-                    class="flex flex-col items-center py-2 w-full shrink-0 border-b border-zinc-800"
+                    class="flex flex-col items-center py-2 w-full shrink-0 border-b border-zinc-200 dark:border-zinc-800"
                 >
                     <button 
                         @click="expandColumn(status.id)"
-                        class="archive-expand-btn text-zinc-500 hover:text-zinc-200 flex items-center px-1 py-2 cursor-pointer transition-colors"
+                        class="archive-expand-btn text-zinc-600 dark:text-zinc-500 hover:text-zinc-800 dark:text-zinc-200 flex items-center px-1 py-2 cursor-pointer transition-colors"
                         :title="status.title + ' öffnen'"
                     >
                         {{ status.title }}
                     </button>
-                    <span class="text-zinc-600 text-[10px] mt-1 leading-none">{{ getNotesByColumn(status.id).length }}</span>
+                    <span class="text-zinc-400 dark:text-zinc-600 text-[10px] mt-1 leading-none">{{ getNotesByColumn(status.id).length }}</span>
                 </div>
             </div>
 
@@ -603,28 +659,28 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 <div 
                     v-for="column in expandedColumns" 
                     :key="column.id"
-                    class="bg-zinc-900/70 border border-zinc-800 flex flex-col h-full overflow-hidden"
+                    class="bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden"
                     @dragover.prevent
                     @drop="onDrop(column.id)"
                 >
-                    <div class="bg-zinc-900 border-b border-zinc-800 px-2.5 py-1.5 flex justify-between items-center shrink-0">
-                        <button @click="toggleCollapse(column.id)" class="text-[11px] font-bold tracking-wider text-zinc-300 uppercase flex items-center gap-1.5 cursor-pointer">
+                    <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-2.5 py-1.5 flex justify-between items-center shrink-0">
+                        <button @click="toggleCollapse(column.id)" class="text-[11px] font-bold tracking-wider text-zinc-700 dark:text-zinc-300 uppercase flex items-center gap-1.5 cursor-pointer">
                             <span class="w-1.5 h-1.5" :class="{
-                                'bg-zinc-500': column.id === 'backlog',
+                                'bg-zinc-400 dark:bg-zinc-500': column.id === 'backlog',
                                 'bg-blue-500': column.id === 'in_progress',
                                 'bg-amber-500': column.id === 'review',
                                 'bg-emerald-500': column.id === 'done',
-                                'bg-zinc-700': column.id === 'archived'
+                                'bg-zinc-300 dark:bg-zinc-700': column.id === 'archived'
                             }"></span>
                             {{ column.title }}
                         </button>
-                        <span class="bg-zinc-950 text-zinc-400 text-[10px] px-1.5 py-0.5 border border-zinc-800">
+                        <span class="bg-zinc-100 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 text-[10px] px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800">
                             {{ getNotesByColumn(column.id).length }}
                         </span>
                     </div>
 
                     <div class="flex-1 p-1.5 overflow-y-auto space-y-1.5">
-                        <div v-if="getNotesByColumn(column.id).length === 0" class="text-[10px] text-zinc-600 italic text-center py-4">
+                        <div v-if="getNotesByColumn(column.id).length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">
                             {{ column.id === 'archived' ? 'Keine archivierten Notizen.' : 'Keine Notizen.' }}
                         </div>
                         <div 
@@ -635,54 +691,54 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             @dragover.prevent="onDragOver(note, $event)"
                             @drop.prevent.stop="onDrop(column.id, note)"
                             @dblclick="openModal(note)"
-                            class="bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-500 transition-colors shadow-sm group relative"
-                            :class="column.id === 'archived' ? 'opacity-70 border-zinc-800' : {
+                            class="bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group relative"
+                            :class="column.id === 'archived' ? 'opacity-70 border-zinc-200 dark:border-zinc-800' : {
                                 'border-red-500/80 bg-red-950/10': note.priority === 'high' && note.status !== 'done',
                                 'border-amber-500/80 bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
-                                'border-zinc-700 bg-zinc-900': note.priority === 'low' && note.status !== 'done',
+                                'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900': note.priority === 'low' && note.status !== 'done',
                                 'border-emerald-600/70 bg-emerald-950/15': note.status === 'done'
                             }"
                         >
                             <div class="flex justify-between items-start gap-1 mb-1.5">
-                                <h3 class="font-bold text-xs text-zinc-100 break-all leading-snug pr-1" :class="{ 'text-zinc-400': column.id === 'archived' }">{{ note.title }}</h3>
+                                <h3 class="font-bold text-xs text-zinc-900 dark:text-zinc-100 break-all leading-snug pr-1" :class="{ 'text-zinc-600 dark:text-zinc-400': column.id === 'archived' }">{{ note.title }}</h3>
                                 <div class="flex gap-1 shrink-0">
-                                    <button @click.stop="duplicateNote(note)" title="Duplizieren" class="text-zinc-600 hover:text-emerald-400 text-[10px] px-1 font-mono">[+]</button>
-                                    <button v-if="column.id === 'archived'" @click.stop="unarchiveNote(note)" title="Wiederherstellen" class="text-zinc-600 hover:text-emerald-400 text-[10px] px-1 font-mono shrink-0">[R]</button>
-                                    <button v-else @click.stop="archiveNote(note)" title="Archivieren" class="text-zinc-600 hover:text-zinc-300 text-[10px] px-1 font-mono">[A]</button>
-                                    <button @click.stop="deleteNote(note.id)" class="text-zinc-600 hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                    <button @click.stop="duplicateNote(note)" title="Duplizieren" class="text-zinc-400 dark:text-zinc-600 hover:text-emerald-600 dark:text-emerald-400 text-[10px] px-1 font-mono">[+]</button>
+                                    <button v-if="column.id === 'archived'" @click.stop="unarchiveNote(note)" title="Wiederherstellen" class="text-zinc-400 dark:text-zinc-600 hover:text-emerald-600 dark:text-emerald-400 text-[10px] px-1 font-mono shrink-0">[R]</button>
+                                    <button v-else @click.stop="archiveNote(note)" title="Archivieren" class="text-zinc-400 dark:text-zinc-600 hover:text-zinc-700 dark:text-zinc-300 text-[10px] px-1 font-mono">[A]</button>
+                                    <button @click.stop="deleteNote(note.id)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
                                 </div>
                             </div>
 
-                            <div class="flex justify-between items-center text-[10px] text-zinc-400 pt-1 border-t border-zinc-800/60">
+                            <div class="flex justify-between items-center text-[10px] text-zinc-600 dark:text-zinc-400 pt-1 border-t border-zinc-200/60 dark:border-zinc-800/60">
                                 <template v-if="column.id === 'archived'">
-                                    <span v-if="note.due_date" class="text-orange-400/70 font-mono">Fällig: {{ fmtDate(note.due_date) }}</span>
-                                    <span v-else class="text-zinc-600 font-mono">Kein Datum</span>
+                                    <span v-if="note.due_date" class="text-orange-600 dark:text-orange-400/70 font-mono">Fällig: {{ fmtDate(note.due_date) }}</span>
+                                    <span v-else class="text-zinc-400 dark:text-zinc-600 font-mono">Kein Datum</span>
                                 </template>
                                 <template v-else>
-                                <span v-if="isOverdue(note)" class="text-red-400/90 font-mono flex items-center gap-1">
+                                <span v-if="isOverdue(note)" class="text-red-600 dark:text-red-400/90 font-mono flex items-center gap-1">
                                     <span class="inline-block w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
                                     ÜBERFÄLLIG ({{ fmtDate(note.due_date) }})
                                 </span>
-                                <span v-else-if="isDueSoon(note)" class="text-orange-400/90 font-mono flex items-center gap-1">
+                                <span v-else-if="isDueSoon(note)" class="text-orange-600 dark:text-orange-400/90 font-mono flex items-center gap-1">
                                     <span class="inline-block w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse"></span>
                                     FÄLLIG ({{ fmtDate(note.due_date) }})
                                 </span>
-                                <span v-else-if="note.due_date" class="text-zinc-500 font-mono">Fällig: {{ fmtDate(note.due_date) }}</span>
-                                <span v-else class="text-zinc-600 font-mono">Kein Datum</span>
+                                <span v-else-if="note.due_date" class="text-zinc-600 dark:text-zinc-500 font-mono">Fällig: {{ fmtDate(note.due_date) }}</span>
+                                <span v-else class="text-zinc-400 dark:text-zinc-600 font-mono">Kein Datum</span>
                                 </template>
-                                <span class="uppercase tracking-widest text-[9px] px-1 bg-zinc-950 border border-zinc-800" :class="{
-                                    'text-emerald-400 border-emerald-900/50': note.status === 'done',
-                                    'text-zinc-500': column.id === 'archived',
-                                    'text-zinc-400': column.id !== 'archived' && note.status !== 'done'
+                                <span class="uppercase tracking-widest text-[9px] px-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800" :class="{
+                                    'text-emerald-600 dark:text-emerald-400 border-emerald-900/50': note.status === 'done',
+                                    'text-zinc-600 dark:text-zinc-500': column.id === 'archived',
+                                    'text-zinc-600 dark:text-zinc-400': column.id !== 'archived' && note.status !== 'done'
                                 }">
                                     {{ column.id === 'archived' ? 'ARCH' : (note.status === 'done' ? 'DONE' : note.priority) }}
                                 </span>
                             </div>
                             <div class="mt-1 flex flex-col gap-0.5 items-start">
-                                <span v-if="getChecklistProgress(note)" class="text-[9px] text-emerald-400/90 font-mono" :class="{ 'text-emerald-500': getChecklistProgress(note).done === getChecklistProgress(note).total }">
+                                <span v-if="getChecklistProgress(note)" class="text-[9px] text-emerald-600 dark:text-emerald-400/90 font-mono" :class="{ 'text-emerald-500': getChecklistProgress(note).done === getChecklistProgress(note).total }">
                                     ✓ {{ getChecklistProgress(note).done }}/{{ getChecklistProgress(note).total }}
                                 </span>
-                                <span v-if="getAppointments(note).length > 0" class="text-[9px] text-violet-400/90 font-mono">Termine: {{ getAppointments(note).length }}</span>
+                                <span v-if="getAppointments(note).length > 0" class="text-[9px] text-violet-600 dark:text-violet-400/90 font-mono">Termine: {{ getAppointments(note).length }}</span>
                                 <div v-if="getDepartments(note).length > 0" class="flex flex-wrap gap-1">
                                     <span 
                                         v-for="(dept, di) in getDepartments(note)" 
@@ -702,26 +758,26 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             <template v-if="activeView === 'calendar'">
                 <div class="flex-1 flex flex-col overflow-hidden">
                     <!-- Calendar Header Controls -->
-                    <div class="bg-zinc-900 border border-zinc-800 px-3 py-2 flex items-center justify-between mb-1.5 shrink-0">
+                    <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 flex items-center justify-between mb-1.5 shrink-0">
                         <div class="flex items-center gap-2">
-                            <button @click="calNavigate(-1)" class="text-zinc-400 hover:text-zinc-100 px-2 py-1 text-xs border border-zinc-700 bg-zinc-800 cursor-pointer">◀</button>
-                            <button @click="calToday" class="text-zinc-400 hover:text-zinc-100 px-2 py-1 text-[10px] border border-zinc-700 bg-zinc-800 cursor-pointer font-bold">HEUTE</button>
-                            <button @click="calNavigate(1)" class="text-zinc-400 hover:text-zinc-100 px-2 py-1 text-xs border border-zinc-700 bg-zinc-800 cursor-pointer">▶</button>
-                            <span class="text-sm font-bold text-zinc-200 ml-2">{{ calTitle }}</span>
+                            <button @click="calNavigate(-1)" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 px-2 py-1 text-xs border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 cursor-pointer">◀</button>
+                            <button @click="calToday" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 px-2 py-1 text-[10px] border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 cursor-pointer font-bold">HEUTE</button>
+                            <button @click="calNavigate(1)" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 px-2 py-1 text-xs border border-zinc-300 dark:border-zinc-700 bg-zinc-200 dark:bg-zinc-800 cursor-pointer">▶</button>
+                            <span class="text-sm font-bold text-zinc-800 dark:text-zinc-200 ml-2">{{ calTitle }}</span>
                         </div>
                         <div class="flex gap-1">
                             <button 
                                 @click="calViewMode = 'month'"
-                                :class="calViewMode === 'month' ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'"
-                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-700 cursor-pointer">Monat</button>
+                                :class="calViewMode === 'month' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300'"
+                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-300 dark:border-zinc-700 cursor-pointer">Monat</button>
                             <button 
                                 @click="calViewMode = 'week'"
-                                :class="calViewMode === 'week' ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'"
-                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-700 cursor-pointer">Woche</button>
+                                :class="calViewMode === 'week' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300'"
+                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-300 dark:border-zinc-700 cursor-pointer">Woche</button>
                             <button 
                                 @click="calViewMode = 'year'"
-                                :class="calViewMode === 'year' ? 'bg-zinc-700 text-zinc-100' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'"
-                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-700 cursor-pointer">Jahr</button>
+                                :class="calViewMode === 'year' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300'"
+                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-300 dark:border-zinc-700 cursor-pointer">Jahr</button>
                         </div>
                     </div>
 
@@ -733,7 +789,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 v-for="(day, idx) in calMonthDays" 
                                 :key="idx"
                                 class="cal-day"
-                                :class="{ 'bg-zinc-900/50': day.currentMonth, 'bg-zinc-950': !day.currentMonth }"
+                                :class="{ 'bg-zinc-100/50 dark:bg-zinc-900/50': day.currentMonth, 'bg-zinc-100 dark:bg-zinc-950': !day.currentMonth }"
                                 @click="calDayClick(day)">
                                 <div class="cal-day-num" :class="{ 'today': day.isToday, 'other-month': !day.currentMonth }">{{ day.date.getDate() }}</div>
                                 <div class="flex flex-wrap">
@@ -743,7 +799,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     <div v-for="(ev, ei) in day.events.slice(0, 3)" :key="ei" class="cal-event-item" :class="ev.cls" :title="ev.title">
                                         {{ ev.title }}
                                     </div>
-                                    <div v-if="day.events.length > 3" class="text-[8px] text-zinc-500 px-1">+{{ day.events.length - 3 }} weitere</div>
+                                    <div v-if="day.events.length > 3" class="text-[8px] text-zinc-600 dark:text-zinc-500 px-1">+{{ day.events.length - 3 }} weitere</div>
                                 </div>
                             </div>
                         </div>
@@ -773,15 +829,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     <!-- Year View -->
                     <div v-if="calViewMode === 'year'" class="flex-1 overflow-auto p-2">
                         <div class="grid grid-cols-3 md:grid-cols-4 gap-3">
-                            <div v-for="(month, mi) in calYearMonths" :key="mi" class="bg-zinc-900 border border-zinc-800 p-2">
-                                <div class="text-xs font-bold text-zinc-300 mb-1.5">{{ month.name }}</div>
+                            <div v-for="(month, mi) in calYearMonths" :key="mi" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2">
+                                <div class="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">{{ month.name }}</div>
                                 <div class="cal-grid" style="gap:0">
-                                    <div v-for="d in ['M','D','M','D','F','S','S']" :key="d" class="text-[8px] text-zinc-600 text-center">{{ d }}</div>
+                                    <div v-for="d in ['M','D','M','D','F','S','S']" :key="d" class="text-[8px] text-zinc-400 dark:text-zinc-600 text-center">{{ d }}</div>
                                     <div 
                                         v-for="(day, idx) in month.days" 
                                         :key="idx"
-                                        class="text-center py-0.5 text-[9px] relative cursor-pointer hover:bg-zinc-800"
-                                        :class="{ 'text-zinc-600': !day.currentMonth, 'text-emerald-400 font-bold': day.isToday, 'text-zinc-300': day.currentMonth && !day.isToday }"
+                                        class="text-center py-0.5 text-[9px] relative cursor-pointer hover:bg-zinc-200 dark:bg-zinc-800"
+                                        :class="{ 'text-zinc-400 dark:text-zinc-600': !day.currentMonth, 'text-emerald-600 dark:text-emerald-400 font-bold': day.isToday, 'text-zinc-700 dark:text-zinc-300': day.currentMonth && !day.isToday }"
                                         @click="calDayClick(day)">
                                         {{ day.date.getDate() }}
                                         <div v-if="day.dots.length > 0" class="flex justify-center gap-px mt-px">
@@ -794,17 +850,17 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     </div>
 
                     <!-- Selected Day Detail Panel -->
-                    <div v-if="calSelectedDay" class="bg-zinc-900 border border-zinc-800 px-3 py-2 mt-1.5 shrink-0 max-h-40 overflow-y-auto">
+                    <div v-if="calSelectedDay" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 mt-1.5 shrink-0 max-h-40 overflow-y-auto">
                         <div class="flex justify-between items-center mb-1.5">
-                            <span class="text-xs font-bold text-zinc-300">{{ calSelectedDayTitle }}</span>
-                            <button @click="calSelectedDay = null" class="text-zinc-500 hover:text-zinc-300 text-[10px] cursor-pointer">[x]</button>
+                            <span class="text-xs font-bold text-zinc-700 dark:text-zinc-300">{{ calSelectedDayTitle }}</span>
+                            <button @click="calSelectedDay = null" class="text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300 text-[10px] cursor-pointer">[x]</button>
                         </div>
-                        <div v-if="calSelectedDayEvents.length === 0" class="text-[10px] text-zinc-600 italic">Keine Termine an diesem Tag.</div>
+                        <div v-if="calSelectedDayEvents.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic">Keine Termine an diesem Tag.</div>
                         <div class="space-y-1">
                             <div v-for="(ev, ei) in calSelectedDayEvents" :key="ei" class="apt-item" :class="ev.cls">
-                                <span v-if="ev.time" class="text-zinc-400 font-mono text-[10px] shrink-0">{{ ev.time }}</span>
-                                <span class="flex-1 truncate">{{ ev.title }}</span>
-                                <span class="text-[9px] text-zinc-600 shrink-0">{{ ev.source }}</span>
+                                <span class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtAptRange(ev) }}</span>
+                                <span class="flex-1 min-w-0 truncate">{{ ev.title }}</span>
+                                <span class="text-[9px] text-zinc-400 dark:text-zinc-600 shrink-0">{{ ev.source }}</span>
                             </div>
                         </div>
                     </div>
@@ -815,52 +871,52 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
         <!-- New note form -->
         <div v-if="isNewNoteOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @keydown.enter="handleNewNoteEnter">
-            <div class="bg-zinc-900 border border-zinc-700 w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl" @click.stop>
-                <div class="bg-zinc-900 border-b border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
-                    <span class="text-xs font-bold tracking-widest text-emerald-400 uppercase">Neue Notiz</span>
-                    <button @click="closeNewNote" class="ml-3 text-zinc-400 hover:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Neue Notiz</span>
+                    <button @click="closeNewNote" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
-                <div class="p-3 flex flex-col gap-3 bg-zinc-950 overflow-y-auto">
+                <div class="p-3 flex flex-col gap-3 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                        <label class="flex flex-col gap-1 text-[11px] text-zinc-400 md:col-span-4">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
                             Titel
                             <input 
                                 ref="newNoteTitleInputRef"
                                 type="text" 
                                 v-model="newNoteTitle" 
                                 placeholder="Notiz-Titel..." 
-                                class="bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                             >
                         </label>
-                        <label class="flex flex-col gap-1 text-[11px] text-zinc-400">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                             Status
-                            <select v-model="newNoteStatus" class="bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                            <select v-model="newNoteStatus" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
                                 <option value="backlog">Backlog</option>
                                 <option value="in_progress">In Arbeit</option>
                                 <option value="review">Review</option>
                                 <option value="done">Abgeschlossen</option>
                             </select>
                         </label>
-                        <label class="flex flex-col gap-1 text-[11px] text-zinc-400">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                             Priorität
-                            <select v-model="newNotePriority" class="bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                            <select v-model="newNotePriority" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
                                 <option value="low">Niedrig</option>
                                 <option value="medium">Mittel</option>
                                 <option value="high">Hoch</option>
                             </select>
                         </label>
-                        <label class="flex flex-col gap-1 text-[11px] text-zinc-400">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                             Fällig
                             <input 
                                 type="date" 
                                 v-model="newNoteDueDate" 
-                                class="bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                             >
                         </label>
-                        <label class="flex flex-col gap-1 text-[11px] text-zinc-400 md:col-span-4">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
                             Department
                             <div class="relative">
-                                <div class="bg-zinc-900 border border-zinc-700 px-2 py-1 flex flex-wrap gap-1 min-h-[28px] items-center focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
+                                <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 flex flex-wrap gap-1 min-h-[28px] items-center focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
                                     <span 
                                         v-for="(dept, di) in newNoteDepartments" 
                                         :key="di"
@@ -878,27 +934,27 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         @input="onDeptInput"
                                         @keydown="handleDeptKeydown"
                                         @blur="closeDeptDropdown"
-                                        class="bg-transparent text-xs text-zinc-100 flex-1 min-w-[80px] outline-none"
+                                        class="bg-transparent text-xs text-zinc-900 dark:text-zinc-100 flex-1 min-w-[80px] outline-none"
                                     >
                                 </div>
                                 <div 
                                     v-if="deptDropdownOpen && deptDropdownSource === 'new'"
-                                    class="absolute left-0 right-0 top-full mt-1 bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto"
+                                    class="absolute left-0 right-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto"
                                 >
                                     <button 
                                         v-for="(dep, index) in filteredDepartments" 
                                         :key="dep.name"
                                         @mousedown.prevent="selectDepartment(dep.name)"
-                                        class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 flex justify-between items-center gap-2 cursor-pointer"
-                                        :class="{ 'bg-zinc-800': index === deptIndex }"
+                                        class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2 cursor-pointer"
+                                        :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === deptIndex }"
                                     >
                                         <span class="truncate">{{ dep.name }}</span>
-                                        <span class="text-zinc-500 text-[10px] shrink-0">{{ dep.count }}×</span>
+                                        <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">{{ dep.count }}×</span>
                                     </button>
                                     <div v-if="filteredDepartments.length === 0 && newNoteDeptInput.trim()" class="px-3 py-1.5">
-                                        <button @mousedown.prevent="addCustomDepartment('new')" class="w-full text-left text-emerald-400 hover:text-emerald-300 cursor-pointer text-[11px]">+ "{{ newNoteDeptInput.trim() }}" erstellen</button>
+                                        <button @mousedown.prevent="addCustomDepartment('new')" class="w-full text-left text-emerald-600 dark:text-emerald-400 hover:text-emerald-600 dark:text-emerald-300 cursor-pointer text-[11px]">+ "{{ newNoteDeptInput.trim() }}" erstellen</button>
                                     </div>
-                                    <div v-if="filteredDepartments.length === 0 && !newNoteDeptInput.trim()" class="px-3 py-2 text-zinc-500">
+                                    <div v-if="filteredDepartments.length === 0 && !newNoteDeptInput.trim()" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
                                         Keine Departments vorhanden.
                                     </div>
                                 </div>
@@ -908,8 +964,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div class="flex flex-col gap-1 relative">
-                            <span class="text-[11px] text-zinc-400">Inhalt (Markdown)</span>
-                            <textarea 
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Inhalt (Markdown)</span>
+                                <textarea 
                                 ref="newNoteTextareaRef"
                                 v-model="newNoteContent" 
                                 placeholder="Inhalt schreiben... ([[ Für Notiz-Links)" 
@@ -917,88 +974,89 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 @keyup="updateAutocompletePos"
                                 @click="updateAutocompletePos"
                                 @keydown="handleAutocompleteKeydown"
-                                class="w-full h-40 bg-zinc-900 border border-zinc-700 px-2 py-1 text-xs text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
-                            ></textarea>
-                            <div ref="newNoteCaretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
-                            <div 
+                                class="w-full h-40 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                                ></textarea>
+                                <div ref="newNoteCaretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
+                                <div 
                                 v-if="showAutocomplete"
                                 :style="{ top: autocompletePos.y + 'px', left: autocompletePos.x + 'px' }"
-                                class="autocomplete-dropdown bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
+                                class="autocomplete-dropdown bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
                             >
-                                <div class="px-2.5 py-1 text-[10px] text-zinc-500 uppercase tracking-wider border-b border-zinc-800 mb-1 flex justify-between items-center">
+                                <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
                                     <span>Notiz verlinken</span>
-                                    <span class="text-zinc-600">↑↓ Enter Esc</span>
+                                    <span class="text-zinc-400 dark:text-zinc-600">↑↓ Enter Esc</span>
                                 </div>
                                 <button 
                                     v-for="(result, index) in autocompleteResults" 
                                     :key="result.id"
                                     @click="selectAutocomplete(index)"
                                     @mousedown.prevent
-                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 flex justify-between items-center gap-2"
-                                    :class="{ 'bg-zinc-800': index === autocompleteIndex }"
+                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
+                                    :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === autocompleteIndex }"
                                 >
                                     <span class="truncate">{{ result.title }}</span>
-                                    <span class="text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
+                                    <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
                                 </button>
-                                <div v-if="autocompleteResults.length === 0" class="px-3 py-2 text-zinc-500">
+<div v-if="autocompleteResults.length === 0" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
                                     Keine Treffer.
                                 </div>
                             </div>
+                            </div>
                         </div>
-                        <div class="bg-zinc-900 border border-zinc-800 p-2.5 flex flex-col">
-                            <span class="text-[11px] font-bold text-zinc-300 uppercase mb-2 border-b border-zinc-800 pb-1">Checklist / Steps</span>
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">Checklist / Steps</span>
                             <div class="flex gap-1 mb-2">
                                 <input 
-                                    ref="newNoteStepInputRef"
+                                ref="newNoteStepInputRef"
                                     type="text" 
                                     v-model="newNoteStepText" 
                                     @keyup.enter="addNewNoteStep"
                                     placeholder="Neuer Step..." 
-                                    class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-100 w-full focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 w-full focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                 >
-                                <button @click="addNewNoteStep" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 text-[11px] border border-zinc-700 cursor-pointer shrink-0">+</button>
+                                <button @click="addNewNoteStep" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer shrink-0">+</button>
                             </div>
-                            <div class="flex-1 overflow-y-auto space-y-1.5 pr-1 max-h-28">
-                                <div v-if="newNoteChecklist.length === 0" class="text-[10px] text-zinc-600 italic text-center py-2">Keine Zwischensteps.</div>
-                                <div v-for="(step, index) in newNoteChecklist" :key="index" class="flex items-center justify-between bg-zinc-950 border border-zinc-800/80 px-2 py-1 gap-2">
-                                    <span class="text-[11px] text-zinc-300 break-all">{{ step.text }}</span>
-                                    <button @click="removeNewNoteStep(index)" class="text-zinc-600 hover:text-red-400 text-[10px] shrink-0 font-mono">[x]</button>
+                            <div class="overflow-y-auto space-y-1.5 pr-1 h-28 shrink-0">
+                                <div v-if="newNoteChecklist.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-2">Keine Zwischensteps.</div>
+                                <div v-for="(step, index) in newNoteChecklist" :key="index" class="flex items-center justify-between bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-1 gap-2">
+                                    <span class="text-[11px] text-zinc-700 dark:text-zinc-300 break-all">{{ step.text }}</span>
+                                    <button @click="removeNewNoteStep(index)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] shrink-0 font-mono">[x]</button>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Appointments -->
-                    <div class="bg-zinc-900 border border-zinc-800 p-2.5">
-                        <span class="text-[11px] font-bold text-zinc-300 uppercase mb-2 block border-b border-zinc-800 pb-1">Termine</span>
+                    <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                        <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
                         <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
-                            <input type="text" v-model="newAptTitle" placeholder="Termin..." @keyup.enter="addNewAppointment" class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-100 focus:outline-none focus:border-emerald-500 md:col-span-2">
-                            <input type="date" v-model="newAptStart" class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 focus:outline-none focus:border-emerald-500">
-                            <input type="text" inputmode="numeric" v-model="newAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 focus:outline-none focus:border-emerald-500">
+                            <input type="text" v-model="newAptTitle" placeholder="Termin..." @keyup.enter="addNewAppointment" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 md:col-span-2">
+                            <input type="date" v-model="newAptStart" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                            <input type="text" inputmode="numeric" v-model="newAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
                         </div>
                         <div class="flex gap-2 mb-2">
-                            <label class="flex items-center gap-1 text-[10px] text-zinc-500">
+                            <label class="flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-500">
                                 <input type="checkbox" v-model="newAptHasEnd" class="accent-emerald-600"> Bis-Datum
                             </label>
-                            <input v-if="newAptHasEnd" type="date" v-model="newAptEnd" class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 focus:outline-none focus:border-emerald-500">
-                            <input v-if="newAptHasEnd" type="text" inputmode="numeric" v-model="newAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-950 border border-zinc-700 px-1.5 py-1 text-[11px] text-zinc-200 focus:outline-none focus:border-emerald-500">
-                            <button @click="addNewAppointment" :disabled="!newAptTitle.trim() || !newAptStart" class="ml-auto bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-3 text-[11px] border border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
+                            <input v-if="newAptHasEnd" type="date" v-model="newAptEnd" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                            <input v-if="newAptHasEnd" type="text" inputmode="numeric" v-model="newAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-1.5 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                            <button @click="addNewAppointment" :disabled="!newAptTitle.trim() || !newAptStart" class="ml-auto bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-3 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
                         </div>
                         <div v-if="newNoteAppointments.length > 0" class="space-y-1 max-h-24 overflow-y-auto">
-                            <div v-for="(apt, ai) in newNoteAppointments" :key="ai" class="apt-item min-w-0">
-                                <span class="text-zinc-400 font-mono text-[10px] shrink-0 min-w-0 truncate overflow-hidden">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
-                                <span class="flex-1 truncate text-zinc-200">{{ apt.title }}</span>
-                                <button @click="newNoteAppointments.splice(ai, 1)" class="text-zinc-600 hover:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
+                            <div v-for="(apt, ai) in newNoteAppointments" :key="ai" class="apt-item min-w-0 flex-wrap">
+                                <span class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
+                                <span class="flex-1 min-w-0 truncate text-zinc-800 dark:text-zinc-200">{{ apt.title }}</span>
+                                <button @click="newNoteAppointments.splice(ai, 1)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
                             </div>
                         </div>
-                        <div v-else class="text-[10px] text-zinc-600 italic">Keine Termine.</div>
+                        <div v-else class="text-[10px] text-zinc-400 dark:text-zinc-600 italic">Keine Termine.</div>
                     </div>
 
                 </div>
-                <div class="bg-zinc-900 border-t border-zinc-800 px-3 py-2 flex justify-end gap-2">
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-end gap-2">
                     <button 
                         @click="createNote" 
-                        class="bg-emerald-700 hover:bg-emerald-600 text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer">
+                        class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer">
                         ERSTELLEN & SCHLIESSEN
                     </button>
                 </div>
@@ -1007,21 +1065,21 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
         <!-- Detail Modal -->
         <div v-if="isModalOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-50">
-            <div class="bg-zinc-900 border border-zinc-700 w-full max-w-3xl flex flex-col h-[80vh] shadow-2xl" @click.stop>
-                <div class="bg-zinc-900 border-b border-zinc-800 px-3 py-2 flex justify-between items-center">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl flex flex-col h-[88vh] shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center">
                     <input 
                         type="text" 
                         v-model="activeNote.title" 
-                        class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-xs text-zinc-100 w-full font-bold focus:outline-none focus:border-emerald-500"
+                        class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 w-full font-bold focus:outline-none focus:border-emerald-500"
                     >
-                    <button @click="closeModal" class="ml-3 text-zinc-400 hover:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                    <button @click="closeModal" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
 
-                <div class="bg-zinc-900/50 border-b border-zinc-800 px-3 py-1.5 flex justify-between items-center text-[11px]">
+                <div class="bg-zinc-100/50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 px-3 py-1.5 flex justify-between items-center text-[11px]">
                     <div class="flex gap-3 items-center flex-wrap">
-                        <label class="flex items-center gap-1 text-zinc-400">
+                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
                             Status:
-                            <select v-model="activeNote.status" class="bg-zinc-950 border border-zinc-700 text-zinc-200 px-1 py-0.5 focus:outline-none">
+                            <select v-model="activeNote.status" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
                                 <option value="backlog">Backlog</option>
                                 <option value="in_progress">In Arbeit</option>
                                 <option value="review">Review</option>
@@ -1029,22 +1087,22 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <option value="archived">Archiv</option>
                             </select>
                         </label>
-                        <label class="flex items-center gap-1 text-zinc-400">
+                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
                             Prio:
-                            <select v-model="activeNote.priority" class="bg-zinc-950 border border-zinc-700 text-zinc-200 px-1 py-0.5 focus:outline-none">
+                            <select v-model="activeNote.priority" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
                                 <option value="low">Niedrig</option>
                                 <option value="medium">Mittel</option>
                                 <option value="high">Hoch</option>
                             </select>
                         </label>
-                        <label class="flex items-center gap-1 text-zinc-400">
+                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
                             Fällig:
-                            <input type="date" v-model="activeNote.due_date" class="bg-zinc-950 border border-zinc-700 text-zinc-200 px-1 py-0.5 focus:outline-none">
+                            <input type="date" v-model="activeNote.due_date" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
                         </label>
-                        <label class="flex items-center gap-1 text-zinc-400 relative">
+                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400 relative">
                             Department:
                             <div class="relative">
-                                <div class="bg-zinc-950 border border-zinc-700 px-1 py-0.5 flex flex-wrap gap-1 min-h-[22px] items-center focus-within:border-emerald-500 w-48">
+                                <div class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-1 py-0.5 flex flex-wrap gap-1 min-h-[22px] items-center focus-within:border-emerald-500 w-48">
                                     <span 
                                         v-for="(dept, di) in activeNoteDepartments" 
                                         :key="di"
@@ -1062,27 +1120,27 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         @input="onDeptInput"
                                         @keydown="handleDeptKeydown"
                                         @blur="closeDeptDropdown"
-                                        class="bg-transparent text-[11px] text-zinc-200 flex-1 min-w-[60px] outline-none"
+                                        class="bg-transparent text-[11px] text-zinc-800 dark:text-zinc-200 flex-1 min-w-[60px] outline-none"
                                     >
                                 </div>
                                 <div 
                                     v-if="deptDropdownOpen && deptDropdownSource === 'modal'"
-                                    class="absolute left-0 top-full mt-1 bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto w-48"
+                                    class="absolute left-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto w-48"
                                 >
                                     <button 
                                         v-for="(dep, index) in filteredDepartments" 
                                         :key="dep.name"
                                         @mousedown.prevent="selectDepartment(dep.name)"
-                                        class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 flex justify-between items-center gap-2 cursor-pointer"
-                                        :class="{ 'bg-zinc-800': index === deptIndex }"
+                                        class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2 cursor-pointer"
+                                        :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === deptIndex }"
                                     >
                                         <span class="truncate">{{ dep.name }}</span>
-                                        <span class="text-zinc-500 text-[10px] shrink-0">{{ dep.count }}×</span>
+                                        <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">{{ dep.count }}×</span>
                                     </button>
                                     <div v-if="filteredDepartments.length === 0 && modalDeptInput.trim()" class="px-3 py-1.5">
-                                        <button @mousedown.prevent="addCustomDepartment('modal')" class="w-full text-left text-emerald-400 hover:text-emerald-300 cursor-pointer text-[11px]">+ "{{ modalDeptInput.trim() }}" erstellen</button>
+                                        <button @mousedown.prevent="addCustomDepartment('modal')" class="w-full text-left text-emerald-600 dark:text-emerald-400 hover:text-emerald-600 dark:text-emerald-300 cursor-pointer text-[11px]">+ "{{ modalDeptInput.trim() }}" erstellen</button>
                                     </div>
-                                    <div v-if="filteredDepartments.length === 0 && !modalDeptInput.trim()" class="px-3 py-2 text-zinc-500">
+                                    <div v-if="filteredDepartments.length === 0 && !modalDeptInput.trim()" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
                                         Keine Departments vorhanden.
                                     </div>
                                 </div>
@@ -1092,140 +1150,148 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     <div>
                         <button 
                             @click="isPreviewMode = !isPreviewMode" 
-                            class="bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-200 px-2.5 py-0.5 font-semibold transition-colors text-[11px] cursor-pointer">
+                            class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2.5 py-0.5 font-semibold transition-colors text-[11px] cursor-pointer">
                             {{ isPreviewMode ? 'Bearbeiten' : 'Vorschau' }}
                         </button>
                     </div>
                 </div>
 
                 <!-- Content & checklist area -->
-                <div class="flex-1 grid grid-cols-1 md:grid-cols-3 p-3 gap-3 overflow-hidden bg-zinc-950 relative">
+                <div class="flex-1 grid grid-cols-1 md:grid-cols-3 p-3 gap-3 overflow-hidden bg-zinc-100 dark:bg-zinc-950 relative">
                     <div class="md:col-span-2 h-full flex flex-col relative">
-                        <textarea 
-                            ref="textareaRef"
-                            v-if="!isPreviewMode"
-                            v-model="activeNote.content" 
-                            @contextmenu.prevent="openContextMenu"
-                            @input="handleAutocomplete"
-                            @keyup="updateAutocompletePos"
-                            @click="updateAutocompletePos"
-                            @keydown="handleAutocompleteKeydown"
-                            placeholder="Inhalt mit Markdown schreiben... (Rechtsklick für Text-Formatierung)"
-                            class="w-full h-full bg-zinc-900 border border-zinc-800 text-zinc-200 p-2.5 text-xs font-mono resize-none focus:outline-none focus:border-zinc-600"
-                        ></textarea>
-                        <!-- Invisible caret mirror for computing cursor coordinates -->
-                        <div ref="caretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
-                        <div 
-                             v-if="isPreviewMode" 
-                             class="markdown-body w-full h-full bg-zinc-900 border border-zinc-800 p-2.5 text-zinc-200 overflow-y-auto text-xs"
-                             v-html="renderedMarkdown"
-                             @click="handleNoteLinkClick">
-                        </div>
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col flex-1 min-h-0">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Inhalt (Markdown)</span>
+                            <textarea 
+                                ref="textareaRef"
+                                v-if="!isPreviewMode"
+                                v-model="activeNote.content" 
+                                @contextmenu.prevent="openContextMenu"
+                                @input="handleAutocomplete"
+                                @keyup="updateAutocompletePos"
+                                @click="updateAutocompletePos"
+                                @keydown="handleAutocompleteKeydown"
+                                placeholder="Inhalt mit Markdown schreiben... (Rechtsklick für Text-Formatierung)"
+                                class="w-full flex-1 min-h-0 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 p-2.5 text-xs font-mono resize-none focus:outline-none focus:border-zinc-400 dark:border-zinc-600"
+                            ></textarea>
+                            <!-- Invisible caret mirror for computing cursor coordinates -->
+                            <div ref="caretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
+                            <div 
+                                 v-if="isPreviewMode" 
+                                 class="markdown-body w-full flex-1 min-h-0 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 p-2.5 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                 v-html="renderedMarkdown"
+                                 @click="handleNoteLinkClick">
+                            </div>
 
                         <!-- Autocomplete dropdown for [[ links -->
                         <div 
                             v-if="showAutocomplete"
                             :style="{ top: autocompletePos.y + 'px', left: autocompletePos.x + 'px' }"
-                            class="autocomplete-dropdown bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
+                            class="autocomplete-dropdown bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
                         >
-                            <div class="px-2.5 py-1 text-[10px] text-zinc-500 uppercase tracking-wider border-b border-zinc-800 mb-1 flex justify-between items-center">
+                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
                                 <span>Notiz verlinken</span>
-                                <span class="text-zinc-600">↑↓ Enter Esc</span>
+                                <span class="text-zinc-400 dark:text-zinc-600">↑↓ Enter Esc</span>
                             </div>
                             <button 
                                 v-for="(result, index) in autocompleteResults" 
                                 :key="result.id"
                                 @click="selectAutocomplete(index)"
                                 @mousedown.prevent
-                                class="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-200 flex justify-between items-center gap-2"
-                                :class="{ 'bg-zinc-800': index === autocompleteIndex }"
+                                class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
+                                :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === autocompleteIndex }"
                             >
                                 <span class="truncate">{{ result.title }}</span>
-                                <span class="text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
+                                <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
                             </button>
-                            <div v-if="autocompleteResults.length === 0" class="px-3 py-2 text-zinc-500">
+                            <div v-if="autocompleteResults.length === 0" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
                                 Keine Treffer.
                             </div>
+                        </div>
                         </div>
 
                         <!-- Context menu (right-click) -->
                         <div 
                             v-if="contextMenu.show" 
                             :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-                            class="absolute z-50 bg-zinc-900 border border-zinc-700 shadow-2xl py-1 text-xs w-48 font-mono select-none"
+                            class="absolute z-50 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs w-52 font-mono select-none"
                         >
-                            <div class="px-2.5 py-1 text-[10px] text-zinc-500 uppercase tracking-wider border-b border-zinc-800 mb-1">Markdown Format</div>
-                            <button @click="applyFormat('**')" class="w-full text-left px-3 py-1 hover:bg-zinc-800 text-zinc-200 flex justify-between"><span>Fett</span><span class="text-zinc-500">**text**</span></button>
-                            <button @click="applyFormat('*')" class="w-full text-left px-3 py-1 hover:bg-zinc-800 text-zinc-200 flex justify-between"><span>Kursiv</span><span class="text-zinc-500">*text*</span></button>
-                            <button @click="applyFormat('~~')" class="w-full text-left px-3 py-1 hover:bg-zinc-800 text-zinc-200 flex justify-between"><span>Durchgestrichen</span><span class="text-zinc-500">~~text~~</span></button>
-                            <button @click="applyFormat('`')" class="w-full text-left px-3 py-1 hover:bg-zinc-800 text-zinc-200 flex justify-between border-b border-zinc-800 pb-1.5 mb-1"><span>Code-Snippet</span><span class="text-zinc-500">`text`</span></button>
-                            <div class="px-2.5 py-1 text-[10px] text-zinc-500 uppercase tracking-wider mb-1">Farben (HTML)</div>
-                            <button @click="applyHtmlColor('#34d399')" class="w-full text-left px-3 py-1 hover:bg-zinc-800 text-emerald-400 flex items-center gap-2"><span class="w-2 h-2 bg-emerald-400 inline-block"></span> Smaragdgrün</button>
-                            <button @click="applyHtmlColor('#fb923c')" class="w-full text-left px-3 py-1 hover:bg-zinc-800 text-orange-400 flex items-center gap-2"><span class="w-2 h-2 bg-orange-400 inline-block"></span> Orange</button>
-                            <button @click="applyHtmlColor('#60a5fa')" class="w-full text-left px-3 py-1 hover:bg-zinc-800 text-blue-400 flex items-center gap-2"><span class="w-2 h-2 bg-blue-400 inline-block"></span> Blau</button>
+                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1">Markdown Format</div>
+                            <button @click="applyFormat('**')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Fett</span><span class="text-zinc-600 dark:text-zinc-500">**text**</span></button>
+                            <button @click="applyFormat('*')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Kursiv</span><span class="text-zinc-600 dark:text-zinc-500">*text*</span></button>
+                            <button @click="applyFormat('~~')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Durchgestrichen</span><span class="text-zinc-600 dark:text-zinc-500">~~text~~</span></button>
+                            <button @click="applyFormat('`')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between border-b border-zinc-200 dark:border-zinc-800 pb-1.5 mb-1"><span>Code-Snippet</span><span class="text-zinc-600 dark:text-zinc-500">`text`</span></button>
+                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider mb-1">Farben (HTML)</div>
+                            <button @click="applyHtmlColor('#34d399')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 flex items-center gap-2"><span class="w-2 h-2 bg-emerald-400 inline-block"></span> Smaragdgrün</button>
+                            <button @click="applyHtmlColor('#f87171')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-red-600 dark:text-red-400 flex items-center gap-2"><span class="w-2 h-2 bg-red-400 inline-block"></span> Rot</button>
+                            <button @click="applyHtmlColor('#fb923c')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-orange-600 dark:text-orange-400 flex items-center gap-2"><span class="w-2 h-2 bg-orange-400 inline-block"></span> Orange</button>
+                            <button @click="applyHtmlColor('#facc15')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-yellow-600 dark:text-yellow-400 flex items-center gap-2"><span class="w-2 h-2 bg-yellow-400 inline-block"></span> Gelb</button>
+                            <button @click="applyHtmlColor('#60a5fa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-blue-600 dark:text-blue-400 flex items-center gap-2"><span class="w-2 h-2 bg-blue-400 inline-block"></span> Blau</button>
+                            <button @click="applyHtmlColor('#a78bfa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-violet-600 dark:text-violet-400 flex items-center gap-2"><span class="w-2 h-2 bg-violet-400 inline-block"></span> Lila</button>
+                            <button @click="applyHtmlColor('#f472b6')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-pink-600 dark:text-pink-400 flex items-center gap-2"><span class="w-2 h-2 bg-pink-400 inline-block"></span> Rosa</button>
+                            <button @click="applyHtmlColor('#a1a1aa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 flex items-center gap-2"><span class="w-2 h-2 bg-zinc-400 dark:bg-zinc-500 inline-block"></span> Grau</button>
                         </div>
                     </div>
 
                     <!-- Steps / checklist + appointments -->
                     <div class="flex flex-col gap-3 overflow-y-auto pr-1">
-                        <div class="bg-zinc-900 border border-zinc-800 p-2.5 flex flex-col">
-                            <span class="text-[11px] font-bold text-zinc-300 uppercase mb-2 block border-b border-zinc-800 pb-1">Checklist / Steps</span>
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Checklist / Steps</span>
                             <div class="flex gap-1 mb-2">
                                 <input 
                                     type="text" 
                                     v-model="newStepText" 
                                     @keyup.enter="addStep"
                                     placeholder="Neuer Step..." 
-                                    class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-100 w-full focus:outline-none focus:border-emerald-500"
+                                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 w-full focus:outline-none focus:border-emerald-500"
                                 >
-                                <button @click="addStep" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 text-[11px] border border-zinc-700 cursor-pointer">+</button>
+                                <button @click="addStep" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer">+</button>
                             </div>
-                            <div class="space-y-1.5 pr-1">
-                                <div v-if="activeChecklist.length === 0" class="text-[10px] text-zinc-600 italic text-center py-4">Keine Zwischensteps vorhanden.</div>
-                                <div v-for="(step, index) in activeChecklist" :key="index" class="flex items-center justify-between bg-zinc-950 border border-zinc-800/80 px-2 py-1 gap-2">
-                                    <label class="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer overflow-hidden">
+                            <div class="space-y-1.5 pr-1 max-h-40 overflow-y-auto">
+                                <div v-if="activeChecklist.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">Keine Zwischensteps vorhanden.</div>
+                                <div v-for="(step, index) in activeChecklist" :key="index" class="flex items-center justify-between bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-1 gap-2">
+                                    <label class="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer overflow-hidden">
                                         <input type="checkbox" v-model="step.done" class="accent-emerald-600 cursor-pointer">
-                                        <span :class="{'line-through text-zinc-600': step.done}" class="break-all">{{ step.text }}</span>
+                                        <span :class="{'line-through text-zinc-400 dark:text-zinc-600': step.done}" class="break-all">{{ step.text }}</span>
                                     </label>
-                                    <button @click="removeStep(index)" class="text-zinc-600 hover:text-red-400 text-[10px] shrink-0 font-mono">[x]</button>
+                                    <button @click="removeStep(index)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] shrink-0 font-mono">[x]</button>
                                 </div>
                             </div>
                         </div>
 
                         <!-- Appointments in modal -->
-                        <div class="bg-zinc-900 border border-zinc-800 p-2.5 flex flex-col">
-                            <span class="text-[11px] font-bold text-zinc-300 uppercase mb-2 block border-b border-zinc-800 pb-1">Termine</span>
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
                             <div class="flex flex-col gap-1 mb-2">
-                                <input type="text" v-model="modalAptTitle" placeholder="Termin..." @keyup.enter="addModalAppointment" class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-100 w-full focus:outline-none focus:border-emerald-500">
+                                <input type="text" v-model="modalAptTitle" placeholder="Termin..." @keyup.enter="addModalAppointment" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 w-full focus:outline-none focus:border-emerald-500">
                                 <div class="flex gap-1">
-                                    <input type="date" v-model="modalAptStart" class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 flex-1 focus:outline-none focus:border-emerald-500">
-                                    <input type="text" inputmode="numeric" v-model="modalAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-950 border border-zinc-700 px-2 py-1 text-[11px] text-zinc-200 w-20 focus:outline-none focus:border-emerald-500">
+                                    <input type="date" v-model="modalAptStart" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 flex-1 focus:outline-none focus:border-emerald-500">
+                                    <input type="text" inputmode="numeric" v-model="modalAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 w-20 focus:outline-none focus:border-emerald-500">
                                 </div>
-                                <label class="flex items-center gap-1 text-[10px] text-zinc-500">
+                                <label class="flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-500">
                                     <input type="checkbox" v-model="modalAptHasEnd" class="accent-emerald-600"> Bis-Datum
                                 </label>
                                 <div v-if="modalAptHasEnd" class="flex gap-1">
-                                    <input type="date" v-model="modalAptEnd" class="bg-zinc-950 border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-200 focus:outline-none focus:border-emerald-500 flex-1">
-                                    <input type="text" inputmode="numeric" v-model="modalAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-950 border border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-200 w-20 focus:outline-none focus:border-emerald-500">
+                                    <input type="date" v-model="modalAptEnd" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 flex-1">
+                                    <input type="text" inputmode="numeric" v-model="modalAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-800 dark:text-zinc-200 w-20 focus:outline-none focus:border-emerald-500">
                                 </div>
-                                <button @click="addModalAppointment" :disabled="!modalAptTitle.trim() || !modalAptStart" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 px-2 py-1 text-[11px] border border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
+                                <button @click="addModalAppointment" :disabled="!modalAptTitle.trim() || !modalAptStart" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-1 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
                             </div>
                             <div class="space-y-1 pr-1">
-                                <div v-if="activeNoteAppointments.length === 0" class="text-[10px] text-zinc-600 italic text-center py-2">Keine Termine.</div>
-                                <div v-for="(apt, ai) in activeNoteAppointments" :key="ai" class="apt-item min-w-0">
-                                <span class="text-zinc-400 font-mono text-[10px] shrink-0 min-w-0 truncate overflow-hidden">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
-                                    <span class="flex-1 truncate text-zinc-200">{{ apt.title }}</span>
-                                    <button @click="activeNoteAppointments.splice(ai, 1)" class="text-zinc-600 hover:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
+                                <div v-if="activeNoteAppointments.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-2">Keine Termine.</div>
+                                <div v-for="(apt, ai) in activeNoteAppointments" :key="ai" class="apt-item min-w-0 flex-wrap">
+                                <span class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
+                                    <span class="flex-1 min-w-0 truncate text-zinc-800 dark:text-zinc-200">{{ apt.title }}</span>
+                                    <button @click="activeNoteAppointments.splice(ai, 1)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="bg-zinc-900 border-t border-zinc-800 px-3 py-2 flex justify-end gap-2">
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-end gap-2">
                     <button 
                         @click="saveActiveNote" 
-                        class="bg-emerald-700 hover:bg-emerald-600 text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer">
+                        class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer">
                         SPEICHERN & SCHLIESSEN
                     </button>
                 </div>
@@ -1302,6 +1368,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 let autocompleteTimer = null
                 const autocompleteContainerRef = ref(null)
                 const exportMenuOpen = ref(false)
+
+                // Theme (dark/light) toggle
+                const isDark = ref(localStorage.getItem('notice-theme') !== 'light')
+                const toggleTheme = () => {
+                    isDark.value = !isDark.value
+                    document.documentElement.classList.toggle('dark', isDark.value)
+                    localStorage.setItem('notice-theme', isDark.value ? 'dark' : 'light')
+                }
 
                 // Department suggestions (for new note form & detail modal)
                 const departments = ref([])
@@ -1531,6 +1605,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 onMounted(() => {
+                    document.documentElement.classList.toggle('dark', isDark.value)
                     fetchNotes()
                     fetchDepartments()
                     window.addEventListener('keydown', handleGlobalKeydown, { capture: true })
@@ -1736,10 +1811,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const openContextMenu = (e) => {
                     if (!textareaRef.value) return
                     const rect = e.target.getBoundingClientRect()
+                    // Offset result to the menu's containing block (nearest positioned ancestor)
+                    let cont = textareaRef.value.parentElement
+                    while (cont && getComputedStyle(cont).position === 'static') cont = cont.parentElement
+                    const contRect = (cont || document.body).getBoundingClientRect()
                     contextMenu.value = {
                         show: true,
-                        x: e.clientX - rect.left,
-                        y: e.clientY - rect.top,
+                        x: (e.clientX - rect.left) + (rect.left - contRect.left),
+                        y: (e.clientY - rect.top) + (rect.top - contRect.top),
                         selectionStart: textareaRef.value.selectionStart,
                         selectionEnd: textareaRef.value.selectionEnd
                     }
@@ -1817,8 +1896,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (!marker) return
                     const taRect = ta.getBoundingClientRect()
                     const markRect = marker.getBoundingClientRect()
-                    const x = markRect.left - taRect.left
-                    const y = markRect.top - taRect.top
+                    // Offset result to the dropdown's containing block (nearest positioned ancestor)
+                    let cont = ta.parentElement
+                    while (cont && getComputedStyle(cont).position === 'static') cont = cont.parentElement
+                    const contRect = (cont || document.body).getBoundingClientRect()
+                    const x = (markRect.left - taRect.left) + (taRect.left - contRect.left)
+                    const y = (markRect.top - taRect.top) + (taRect.top - contRect.top)
 
                     // Flip: if there is enough space above / not below, show the dropdown upward
                     const container = ta.closest('.md\\:col-span-2') || ta.parentElement
@@ -2091,7 +2174,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 const renderedMarkdown = computed(() => {
-                    if (!activeNote.value || !activeNote.value.content) return '<p class="text-zinc-500">Kein Inhalt vorhanden.</p>'
+                    if (!activeNote.value || !activeNote.value.content) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
                     const html = marked.parse(activeNote.value.content)
                     return processNoteLinks(html)
                 })
@@ -2363,6 +2446,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     return m ? `${m[3]}.${m[2]}.${m[1]}` : String(v)
                 }
 
+                const fmtAptRange = (ev) => {
+                    let s = fmtDate(ev.start) + (ev.time ? ' ' + ev.time : '')
+                    if (ev.end) s += ' – ' + fmtDate(ev.end) + (ev.endTime ? ' ' + ev.endTime : '')
+                    return s
+                }
+
                 const calEventsForDate = (d) => {
                     const ds = dateStr(d)
                     const events = []
@@ -2377,7 +2466,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     title: `${note.title} – ${apt.title || 'Termin'}`,
                                     time: apt.time || '',
                                     cls: overdue ? 'cal-event-overdue' : 'cal-event-apt',
-                                    source: note.title
+                                    source: note.title,
+                                    start: apt.start,
+                                    end: apt.end || '',
+                                    endTime: apt.endTime || ''
                                 })
                             }
                         })
@@ -2565,6 +2657,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 return {
                     activeView,
+                    isDark,
+                    toggleTheme,
                     newNoteTitle,
                     newNotePriority,
                     newNoteDueDate,
@@ -2691,6 +2785,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     calSelectedDayTitle,
                     calSelectedDayEvents,
                     fmtDate,
+                    fmtAptRange,
                     dateStr
                 }
             }
