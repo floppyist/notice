@@ -1,21 +1,52 @@
-# Notice – Pro Kanban Notes
+<p align="center">
+  <b><span style="color:#34d399">■</span> NOTICE_V1.2</b> — <i>Pro Kanban Notes</i>
+</p>
 
-Ein kompaktes, einzeldateibasiertes Kanban-Notizboard als webbasierte App: **Axum REST-API (Rust)** serviert eine eingebettete **Vue 3 / Tailwind**-Oberfläche und speichert alles in einer **SQLite**-Datenbank. Die gesamte App – Backend, Frontend-HTML und JavaScript – lebt in einer einzigen Datei (`src/main.rs`).
+<p align="center">
+  Ein kompaktes, einzeldateibasiertes Kanban-Notizboard als webbasierte App:<br/>
+  <b>Axum REST-API (Rust)</b> serviert eine eingebettete <b>Vue 3 / Tailwind</b>-Oberfläche und speichert alles in einer SQLite-Datenbank. Backend, Frontend-HTML und JavaScript leben in einer einzigen Datei (<code>src/main.rs</code>).
+</p>
 
-## Features
+---
 
-- **Kanban-Board** mit den Spalten `Backlog`, `In Arbeit`, `Review`, `Abgeschlossen` und einem separaten, standardmäßig eingeklappten **Archiv**.
-- **Einzelne Spalten ein-/ausklappbar**: Eingeklappte Status erscheinen als vertikaler Tab-Stapel links, erweiterte Spalten füllen ein Grid in der Mitte.
-- **Neue Notiz-Maske** (Öffnen mit `Alt+N`): Titel, Status, Priorität, Fälligkeit, Inhalt (Markdown), **Checkliste/Steps**.
-- **Detail-Modal** (Doppelklick auf eine Karte): Titel, Status, Priorität, Fälligkeit, **Department** und Inhalts-/Checklisten-Bearbeitung mit **Vorschau-Modus**.
+## `// VIEWS` — Board & Kalender
+
+Zwei Ansichten lassen sich über die Kopfleiste (`BOARD` / `KALENDER`) umschalten.
+
+![Board-Ansicht](screenshots/board.png)
+
+**Board** – Spalten für `Backlog`, `In Arbeit`, `Review` und `Abgeschlossen` sowie ein eigenes, standardmäßig **eingeklapptes Archiv**.
+
+![Kalender-Ansicht (Monat)](screenshots/kalender.png)
+
+**Kalender** – Outlook-artige Ansicht mit `MONAT`, `WOCHE` und `JAHR`. Karten mit Fälligkeitsdatum erscheinen als **blaue** Markierung, gebuchte **Termine** als **grüne**, überfällige als **rote**. Archivierte Notizen werden ausgeblendet.
+
+![Detail-Modal](screenshots/detail.png)
+
+**Detail-Modal** (Doppelklick auf eine Karte) – Titel, Status, Priorität, Fälligkeit, Departments, Termine und Inhalts-/Checklisten-Bearbeitung mit Vorschau-Modus.
+
+---
+
+## `// FEATURES`
+
+- **Kanban-Board** mit ein-/ausklappbaren Spalten:
+  - Eingeklappte Status erscheinen als **vertikaler Tab-Stapel links** (mit Trennlinie unter jedem Tab) – inklusive des **Archivs**.
+  - Erweiterte Spalten füllen ein Grid in der Mitte.
+- **Kalender** (`MONAT` / `WOCHE` / `JAHR`) kombiniert `due_date` (blau), `Termine` (grün) und Überfälliges (rot).
+- **Neue-Notiz-Maske** (`Alt+N`): Titel, Status, Priorität, Fälligkeit, Inhalt (Markdown), **Checkliste/Steps** und **Termine**.
+- **Detail-Modal** (Doppelklick): alle Felder inkl. **Departments** und **Termine**, mit **Bearbeiten/Vorschau-Umschaltung**.
 - **Markdown** für den Inhalt inkl. **unterstützter HTML-Farben** und **verlinkbarer Notizen** über `[[Titel|Anzeige-Name]]` (mit Autocomplete).
-- **Departments**: Optional pro Notiz, frei erstellbar, mit **Autocomplete-Vorschlägen** (häufigste zuerst, case-insensitiv dedupliziert) in Maske und Modal.
-- **Drag & Drop** zum Verschieben zwischen Spalten sowie zum Umsortieren innerhalb einer Spalte.
-- **Prioritäts-Badges** (`Niedrig`/`Mittel`/`Hoch`) und **Fälligkeits-Badges** (`ÜBERFÄLLIG`/`FÄLLIG` …) auf den Karten.
-- **Export** als **JSON** oder **CSV** über ein Export-Menü.
-- **Volle Durchsuchbarkeit** (Standardmäßig mit `Strg+K` auf die Suchleiste fokussieren), inkl. strukturierter Syntax (siehe unten).
+- **Departments**: optional pro Notiz, frei erstellbar, **Autocomplete** (häufigste zuerst, case-insensitiv dedupliziert). Auf Karten erscheinen die Departments als **inline umbrechende Badges** (eine Zeile, ohne Emoji).
+- **Termine**: pro Notiz beliebig viele, mit Start, optionaler Uhrzeit (`HH:MM`), optionalem End-Datum und End-Uhrzeit.
+- **Drag & Drop** zwischen Spalten sowie zum Umsortieren innerhalb einer Spalte; Notizen lassen sich direkt ins **Archiv** ziehen.
+- **Archiv**: Notizen per `[A]` archivieren, per `[R]` wiederherstellen, `[X]` löschen.
+- **Prioritäts- und Fälligkeits-Badges** auf den Karten (`ÜBERFÄLLIG` bzw. `FÄLLIG`).
+- **Export** als **JSON** oder **CSV** über das Export-Menü.
+- **Volle Durchsuchbarkeit** (`Strg+K`), inkl. strukturierter `key:value`-Syntax (siehe unten).
 
-## Schnellstart
+---
+
+## `// QUICKSTART`
 
 ### Voraussetzungen
 
@@ -29,35 +60,38 @@ cargo run
 # → läuft auf http://127.0.0.1:8080
 ```
 
-Beim ersten Start wird `notice.db` (SQLite) automatisch in das Projektverzeichnis angelegt, sofern sie noch nicht existiert. Vorhandene Datenbanken werden bei Bedarf per `ALTER TABLE` migriert (z. B. neue Spalten), bestehende Daten bleiben erhalten.
+Beim ersten Start wird `notice.db` (SQLite) automatisch angelegt. Vorhandene Datenbanken werden per `ALTER TABLE` migriert (z. B. `departments`, `appointments`), bestehende Daten bleiben erhalten.
 
-## Bedienung
+---
+
+## `// BEDIENUNG`
 
 | Aktion | Eingabe |
 |---|---|
 | Suchleiste fokussieren | `Strg+K` |
 | Neue Notiz öffnen | `Alt+N` |
 | Notiz im Detail-Modal öffnen | Doppelklick auf Karte |
-| Bearbeiten / Vorschau umschalten | Knopf `✏️ Bearbeiten` / `👁️ Vorschau` |
+| Bearbeiten / Vorschau umschalten | Knopf `Bearbeiten` / `Vorschau` |
 | Speichern (im Modal) | `Strg+S` |
-| Escape | Schließt Modal/Maske bzw. Autocomplete (und entfernt `[[`-Rest bei aktiver Eingabe) |
-| Notiz verlinken | `[[` im Inhalt eingeben, dann `↑↓`/`Enter` auswählen |
-
-### Neue-Notiz-Maske
-
-- **Titel**, **Status**, **Priorität**, **Fällig**, **Department** und **Inhalt (Markdown)**.
-- Unter „Checklist / Steps" lassen sich einzelne Zwischenschritte hinzufügen.
-- Position: „Erstellen & Schließen".
+| Escape | Schließt Modal/Maske bzw. Autocomplete (entfernt `[[`-Rest) |
+| Notiz verlinken | `[[` im Inhalt, dann `↑↓`/`Enter` auswählen |
 
 ### Departments
 
-- Im Feld **Department** (in Maske und Detail-Modal) werden beim Fokussieren die **häufigsten** vorhandenen Departments vorgeschlagen; beim Tippen wird live gefiltert (wie bei `[[`-Links).
-- Eingaben werden **case-insensitiv dedupliziert**: Existiert z. B. "Küche" bereits, wird auch "küche" als "Küche" gespeichert – so entstehen keine Duplikate.
-- Auf den Karten erscheint ein Department als Badge (`🏠 …`).
+- Beim Fokussieren werden die **häufigsten** vorhandenen Departments vorgeschlagen, beim Tippen live gefiltert.
+- Eingaben werden **case-insensitiv dedupliziert** („küche“ wird zu „Küche“).
+- Auf Karten erscheinen Departments als Badges.
 
-## Suchsyntax
+### Termine
 
-Die Suche durchsucht u.a. Titel, Inhalt und Department. Zusätzlich unterstützt sie `key:value`-Filter:
+- In Maske und Modal lassen sich Termine mit `Start`, optionaler `Zeit` (`HH:MM`), optionalem `Ende` (Datum) und `End-Zeit` anlegen.
+- Termine erscheinen als **grüne** Kalendereinträge und in der Karten-/Modal-Liste unter „Termine“.
+
+---
+
+## `// SUCHSYNTAX`
+
+Die Suche durchsucht u. a. Titel, Inhalt und Departments. Zusätzlich unterstützt sie `key:value`-Filter:
 
 ```
 status:done
@@ -74,7 +108,9 @@ inhalt:Schlüsselwort
 
 Mehrere Freitext-Begriffe werden als UND verknüpft.
 
-## API
+---
+
+## `// API`
 
 ### Notizen
 
@@ -84,7 +120,7 @@ Mehrere Freitext-Begriffe werden als UND verknüpft.
 | `POST` | `/api/notes` | Neue Notiz anlegen |
 | `POST` / `PUT` | `/api/notes/:id` | Notiz aktualisieren (bewusst beides gemappt) |
 | `DELETE` | `/api/notes/:id` | Notiz löschen |
-| `GET` | `/api/notes/search?q=…` | Notiz-Suche für die `[[`-Autovervollständigung |
+| `GET` | `/api/notes/search?q=…` | Suche für die `[[`-Autovervollständigung |
 | `POST` | `/api/notes/:id/duplicate` | Notiz duplizieren (Titel mit `(Kopie)`) |
 
 Beispiel `POST /api/notes`:
@@ -96,21 +132,24 @@ Beispiel `POST /api/notes`:
   "status": "backlog",
   "priority": "medium",
   "due_date": "2026-09-30",
-  "department": "Küche"
+  "departments": "[\"Küche\"]",
+  "appointments": "[{\"title\": \"Markt\", \"start\": \"2026-09-30\", \"time\": \"14:30\"}]"
 }
 ```
 
-> **Hinweis:** Das Feld `content` speichert **JSON** (`{"text": …, "checklist": […]}`), keinen Klartext. Wer über die API Klartext speichert, bricht die Checklisten-Ansicht beim nächsten Laden.
+> **Hinweis:** `content` speichert **JSON** (`{"text": …, "checklist": […]}`), keinen Klartext. Ebenso sind `departments` und `appointments` **JSON-Array-Strings** – nie rohe Strings/Objekte senden, immer `JSON.stringify(...)` aus der JS.
 
 ### Departments
 
 | Methode | Pfad | Beschreibung |
 |---|---|---|
-| `GET` | `/api/departments` | Liste der vorhandenen Departments als `[{name, count}]`, nach Häufigkeit sortiert und case-insensitiv dedupliziert |
+| `GET` | `/api/departments` | `[{name, count}]`, nach Häufigkeit sortiert, case-insensitiv dedupliziert |
 
-## Datenmodell
+---
 
-Die Tabelle `notes` enthält:
+## `// DATENMODELL`
+
+Tabelle `notes`:
 
 | Spalte | Typ | Bedeutung |
 |---|---|---|
@@ -121,22 +160,26 @@ Die Tabelle `notes` enthält:
 | `priority` | TEXT | `low`, `medium`, `high` |
 | `date` | TEXT | Erstellungsdatum (TT.MM.JJJJ) |
 | `due_date` | TEXT | Optionales Fälligkeitsdatum (YYYY-MM-DD) |
-| `department` | TEXT | Optionales Department (case-insensitiv dedupliziert) |
+| `department` | TEXT | Legacy: einzelnes Department (Kompatibilität) |
+| `departments` | TEXT | JSON-Array der Departments |
+| `appointments` | TEXT | JSON-Array der Termine |
 | `sort_order` | INTEGER | Sortierung innerhalb einer Spalte |
 
-## Projektstruktur
+---
+
+## `// PROJEKTSTRUKTUR`
 
 - `src/main.rs` – die komplette App (Rust-Backend, Datenbank-Setup, eingebettetes HTML/JS-Frontend).
 - `notice.db` – SQLite-Datenbank, wird zur Laufzeit erzeugt (in `.gitignore`).
+- `screenshots/` – Screenshots der Oberfläche (Board, Kalender, Detail-Modal).
 - `AGENTS.md` – zusätzliche Hinweise für Entwicklungs-Assistenten.
 
-## Technische Details & Hinweise
+---
+
+## `// TECHNISCHE NOTIZEN`
 
 - `sqlx` verbindet via `sqlite://notice.db?mode=rwc`; `?mode=rwc` legt die Datei bei Bedarf an.
-- Es gibt keine kompilierten SQL-Checks – die Queries sind Laufzeit-Strings (keine `sqlx::query!`-Makros).
+- Die SQL-Queries sind Laufzeit-Strings (keine `sqlx::query!`-Makros) – keine compilierten SQL-Checks.
+- Die Frontend-Bibliotheken (Vue production, Tailwind, marked) sind **lokal eingebettet** (offline-fähig) statt CDN.
 - Die gesamte UI und alle Texte sind auf **Deutsch**.
-- Markdown-Rendering über `marked` (CDN); CSS über das Tailwind-CDN.
-
-## Kein Test-/Lint-Setup
-
-Dieses Projekt enthält weder Tests noch Lint- oder CI-Konfiguration. Die smokeartige Verifikation erfolgt manuell über `cargo build` sowie das Starten und Abfragen des Servers (`curl`).
+- Kein Test-/Lint-/CI-Setup; verifiziert per `cargo build` + manuellem Smoke-Test.
