@@ -3,127 +3,131 @@
 </p>
 
 <p align="center">
-  Ein kompaktes, einzeldateibasiertes Kanban-Notizboard als webbasierte App:<br/>
-  <b>Axum REST-API (Rust)</b> serviert eine eingebettete <b>Vue 3 / Tailwind</b>-Oberfläche und speichert alles in einer SQLite-Datenbank. Backend, Frontend-HTML und JavaScript leben in einer einzigen Datei (<code>src/main.rs</code>).
+  A compact, single-file Kanban notes board as a web app:<br/>
+  an <b>Axum REST API (Rust)</b> serves an embedded <b>Vue 3 / Tailwind</b> UI and stores everything in a SQLite database. Backend, frontend HTML and JavaScript all live in a single file (<code>src/main.rs</code>).
 </p>
 
 ---
 
-## `// VIEWS` — Board & Kalender
+## `// VIEWS` — Board & Calendar
 
-Zwei Ansichten lassen sich über die Kopfleiste (`BOARD` / `KALENDER`) umschalten.
+Two views can be switched via the header bar (`BOARD` / `CALENDAR`).
 
-![Board-Ansicht](screenshots/board.png)
+![Board view](screenshots/board.png)
 
-**Board** – Spalten für `Backlog`, `In Arbeit`, `Review` und `Abgeschlossen` sowie ein eigenes, standardmäßig **eingeklapptes Archiv**.
+**Board** – columns for `Backlog`, `In Progress`, `Review` and `Done`, plus a dedicated **collapsed** archive by default.
 
-![Kalender-Ansicht (Monat)](screenshots/kalender.png)
+![Calendar view (month)](screenshots/kalender.png)
 
-**Kalender** – Outlook-artige Ansicht mit `MONAT`, `WOCHE` und `JAHR`. Karten mit Fälligkeitsdatum erscheinen als **blaue** Markierung, gebuchte **Termine** als **grüne**, überfällige als **rote**. Archivierte Notizen werden ausgeblendet.
+**Calendar** – Outlook-style view with `MONTH`, `WEEK` and `YEAR`. Cards with a due date appear as **blue** markers, booked **appointments** as **green**, overdue ones as **red**. Archived notes are hidden.
 
-![Detail-Modal](screenshots/detail.png)
+![Detail modal](screenshots/detail.png)
 
-**Detail-Modal** (Doppelklick auf eine Karte) – Titel, Status, Priorität, Fälligkeit, Departments, Termine und Inhalts-/Checklisten-Bearbeitung mit Vorschau-Modus.
+**Detail modal** (double-click a card) – title, status, priority, due date, departments, appointments and content/checklist editing with a preview mode.
 
 ---
 
 ## `// FEATURES`
 
-- **Kanban-Board** mit ein-/ausklappbaren Spalten:
-  - Eingeklappte Status erscheinen als **vertikaler Tab-Stapel links** (mit Trennlinie unter jedem Tab) – inklusive des **Archivs**.
-  - Erweiterte Spalten füllen ein Grid in der Mitte.
-- **Kalender** (`MONAT` / `WOCHE` / `JAHR`) kombiniert `due_date` (blau), `Termine` (grün) und Überfälliges (rot).
-- **Neue-Notiz-Maske** (`Alt+N`): Titel, Status, Priorität, Fälligkeit, Inhalt (Markdown), **Checkliste/Steps** und **Termine**.
-- **Detail-Modal** (Doppelklick): alle Felder inkl. **Departments** und **Termine**, mit **Bearbeiten/Vorschau-Umschaltung**.
-- **Markdown** für den Inhalt inkl. **unterstützter HTML-Farben** und **verlinkbarer Notizen** über `[[Titel|Anzeige-Name]]` (mit Autocomplete).
-- **Departments**: optional pro Notiz, frei erstellbar, **Autocomplete** (häufigste zuerst, case-insensitiv dedupliziert). Auf Karten erscheinen die Departments als **inline umbrechende Badges** (eine Zeile, ohne Emoji).
-- **Termine**: pro Notiz beliebig viele, mit Start, optionaler Uhrzeit (`HH:MM`), optionalem End-Datum und End-Uhrzeit.
-- **Drag & Drop** zwischen Spalten sowie zum Umsortieren innerhalb einer Spalte; Notizen lassen sich direkt ins **Archiv** ziehen.
-- **Archiv**: Notizen per `[A]` archivieren, per `[R]` wiederherstellen, `[X]` löschen.
-- **Prioritäts- und Fälligkeits-Badges** auf den Karten (`ÜBERFÄLLIG` bzw. `FÄLLIG`).
-- **Export** als **JSON** oder **CSV** über das Export-Menü.
-- **Volle Durchsuchbarkeit** (`Strg+K`), inkl. strukturierter `key:value`-Syntax (siehe unten).
+- **Kanban board** with collapsible columns:
+  - Collapsed statuses show as a **vertical tab stack on the left** (with a divider under each tab) – including the **archive**.
+  - Expanded columns fill a grid in the middle.
+- **Calendar** (`MONTH` / `WEEK` / `YEAR`) combines `due_date` (blue), appointments (green) and overdue (red).
+- **New-note form** (`Alt+N`): title, status, priority, due date, content (Markdown), **checklist/steps** and **appointments**.
+- **Detail modal** (double-click): all fields incl. **departments** and **appointments**, with an **edit/preview toggle**.
+- **Markdown** for the content, incl. **supported HTML colors** and **cross-linked notes** via `[[Title|Display name]]` (with autocomplete).
+- **Departments**: optional per note, freely creatable, **autocomplete** (most frequent first, case-insensitive deduplication). On cards the departments render as **inline wrapping badges** (single line, no emoji).
+- **Appointments**: any number per note, with start, optional time (`HH:MM`), optional end date and end time.
+- **Week view** is a 24-hour timeline with position/styleable event blocks; overlapping events are placed side by side in lanes; timed and all-day events are handled separately.
+- **Drag & Drop** between columns as well as for reordering within a column; notes can be dragged directly into the **archive**.
+- **Archive**: archive notes with `[A]`, restore with `[R]`, delete with `[X]`.
+- **Priority and due-date badges** on the cards (`OVERDUE` and `DUE` respectively).
+- **Overdue reminder**: on startup (and after changes) a floating panel lists overdue appointments and due dates.
+- **Auto-archive**: optional (settings, default day = 1st), moves all `Done` notes to the archive on startup when that day is reached.
+- **Export** as **JSON** or **CSV** via the export menu.
+- **Dark/light theme**: dark by default, toggle in the header, persists in `localStorage`.
+- **Full searchability** (`Ctrl+K`), incl. structured `key:value` syntax (see below).
 
 ---
 
 ## `// QUICKSTART`
 
-### Voraussetzungen
+### Prerequisites
 
-- Rust (stable) inkl. Cargo
+- Rust (stable) incl. Cargo
 
-### Build & Start
+### Build & Run
 
 ```bash
 cargo build
 cargo run
-# → läuft auf http://127.0.0.1:8080
+# → serves at http://127.0.0.1:8080
 ```
 
-Beim ersten Start wird `notice.db` (SQLite) automatisch angelegt. Vorhandene Datenbanken werden per `ALTER TABLE` migriert (z. B. `departments`, `appointments`), bestehende Daten bleiben erhalten.
+On first start, `notice.db` (SQLite) is created automatically. Existing databases are migrated with `ALTER TABLE` (e.g. `departments`, `appointments`), existing data is preserved.
 
 ---
 
-## `// BEDIENUNG`
+## `// USAGE`
 
-| Aktion | Eingabe |
+| Action | Input |
 |---|---|
-| Suchleiste fokussieren | `Strg+K` |
-| Neue Notiz öffnen | `Alt+N` |
-| Notiz im Detail-Modal öffnen | Doppelklick auf Karte |
-| Bearbeiten / Vorschau umschalten | Knopf `Bearbeiten` / `Vorschau` |
-| Speichern (im Modal) | `Strg+S` |
-| Escape | Schließt Modal/Maske bzw. Autocomplete (entfernt `[[`-Rest) |
-| Notiz verlinken | `[[` im Inhalt, dann `↑↓`/`Enter` auswählen |
+| Focus the search bar | `Ctrl+K` |
+| Open a new note | `Alt+N` |
+| Open a note in the detail modal | Double-click a card |
+| Toggle edit / preview | Button `Edit` / `Preview` |
+| Save (in the modal) | `Ctrl+S` |
+| Escape | Closes the modal/form or autocomplete (removes the `[[` remnant) |
+| Link a note | `[[` in the content, then pick with `↑↓`/`Enter` |
 
 ### Departments
 
-- Beim Fokussieren werden die **häufigsten** vorhandenen Departments vorgeschlagen, beim Tippen live gefiltert.
-- Eingaben werden **case-insensitiv dedupliziert** („küche“ wird zu „Küche“).
-- Auf Karten erscheinen Departments als Badges.
+- On focus the **most frequent** existing departments are suggested, filtered live as you type.
+- Inputs are **case-insensitively deduplicated** ("küche" becomes "Küche").
+- Departments render as badges on the cards.
 
-### Termine
+### Appointments
 
-- In Maske und Modal lassen sich Termine mit `Start`, optionaler `Zeit` (`HH:MM`), optionalem `Ende` (Datum) und `End-Zeit` anlegen.
-- Termine erscheinen als **grüne** Kalendereinträge und in der Karten-/Modal-Liste unter „Termine“.
+- In form and modal you can create appointments with `Start`, optional `Time` (`HH:MM`), optional `End` (date) and `End time`.
+- Appointments appear as **green** calendar entries and in the card/modal list under "Appointments".
 
 ---
 
-## `// SUCHSYNTAX`
+## `// SEARCH SYNTAX`
 
-Die Suche durchsucht u. a. Titel, Inhalt und Departments. Zusätzlich unterstützt sie `key:value`-Filter:
+The search covers e.g. title, content and departments. It additionally supports `key:value` filters:
 
 ```
 status:done
-status:in_progress          # oder: inprogress / in arbeit
-prio:high                   # oder: priority:hoch / h
-datum:2026-09-01            # oder datum today / none / any / this_week
-faellig:overdue             # oder due / due_date
+status:in_progress          # or: inprogress / in arbeit
+prio:high                   # or: priority:hoch / h
+datum:2026-09-01            # or datum today / none / any / this_week
+faellig:overdue             # or due / due_date
 faellig:>=2026-09-01
 faellig:2026-09-01..2026-09-30
 dep:Küche
-titel:Teiltext
-inhalt:Schlüsselwort
+titel:Part-of-title
+inhalt:Keyword
 ```
 
-Mehrere Freitext-Begriffe werden als UND verknüpft.
+Multiple free-text terms are AND-ed together.
 
 ---
 
 ## `// API`
 
-### Notizen
+### Notes
 
-| Methode | Pfad | Beschreibung |
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/notes` | Alle Notizen (sortiert nach `sort_order`) |
-| `POST` | `/api/notes` | Neue Notiz anlegen |
-| `POST` / `PUT` | `/api/notes/:id` | Notiz aktualisieren (bewusst beides gemappt) |
-| `DELETE` | `/api/notes/:id` | Notiz löschen |
-| `GET` | `/api/notes/search?q=…` | Suche für die `[[`-Autovervollständigung |
-| `POST` | `/api/notes/:id/duplicate` | Notiz duplizieren (Titel mit `(Kopie)`) |
+| `GET` | `/api/notes` | All notes (sorted by `sort_order`) |
+| `POST` | `/api/notes` | Create a new note |
+| `POST` / `PUT` | `/api/notes/:id` | Update a note (both intentionally mapped) |
+| `DELETE` | `/api/notes/:id` | Delete a note |
+| `GET` | `/api/notes/search?q=…` | Search for the `[[` autocomplete |
+| `POST` | `/api/notes/:id/duplicate` | Duplicate a note (title gets a `(copy)` suffix) |
 
-Beispiel `POST /api/notes`:
+Example `POST /api/notes`:
 
 ```json
 {
@@ -137,49 +141,49 @@ Beispiel `POST /api/notes`:
 }
 ```
 
-> **Hinweis:** `content` speichert **JSON** (`{"text": …, "checklist": […]}`), keinen Klartext. Ebenso sind `departments` und `appointments` **JSON-Array-Strings** – nie rohe Strings/Objekte senden, immer `JSON.stringify(...)` aus der JS.
+> **Note:** `content` stores **JSON** (`{"text": …, "checklist": […]}`), not plain text. Likewise `departments` and `appointments` are **JSON-array strings** – never send raw strings/objects, always `JSON.stringify(...)` from the JS.
 
 ### Departments
 
-| Methode | Pfad | Beschreibung |
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/departments` | `[{name, count}]`, nach Häufigkeit sortiert, case-insensitiv dedupliziert |
+| `GET` | `/api/departments` | `[{name, count}]`, sorted by frequency, case-insensitively deduplicated |
 
 ---
 
-## `// DATENMODELL`
+## `// DATA MODEL`
 
-Tabelle `notes`:
+Table `notes`:
 
-| Spalte | Typ | Bedeutung |
+| Column | Type | Meaning |
 |---|---|---|
-| `id` | INTEGER (PK) | Auto-ID |
-| `title` | TEXT | Titel |
-| `content` | TEXT | Inhalt als JSON (`text` + `checklist`) |
+| `id` | INTEGER (PK) | Auto ID |
+| `title` | TEXT | Title |
+| `content` | TEXT | Content as JSON (`text` + `checklist`) |
 | `status` | TEXT | `backlog`, `in_progress`, `review`, `done`, `archived` |
 | `priority` | TEXT | `low`, `medium`, `high` |
-| `date` | TEXT | Erstellungsdatum (TT.MM.JJJJ) |
-| `due_date` | TEXT | Optionales Fälligkeitsdatum (YYYY-MM-DD) |
-| `department` | TEXT | Legacy: einzelnes Department (Kompatibilität) |
-| `departments` | TEXT | JSON-Array der Departments |
-| `appointments` | TEXT | JSON-Array der Termine |
-| `sort_order` | INTEGER | Sortierung innerhalb einer Spalte |
+| `date` | TEXT | Creation date (DD.MM.YYYY) |
+| `due_date` | TEXT | Optional due date (YYYY-MM-DD) |
+| `department` | TEXT | Legacy: single department (compatibility) |
+| `departments` | TEXT | JSON array of departments |
+| `appointments` | TEXT | JSON array of appointments |
+| `sort_order` | INTEGER | Sort order within a column |
 
 ---
 
-## `// PROJEKTSTRUKTUR`
+## `// PROJECT STRUCTURE`
 
-- `src/main.rs` – die komplette App (Rust-Backend, Datenbank-Setup, eingebettetes HTML/JS-Frontend).
-- `notice.db` – SQLite-Datenbank, wird zur Laufzeit erzeugt (in `.gitignore`).
-- `screenshots/` – Screenshots der Oberfläche (Board, Kalender, Detail-Modal).
-- `AGENTS.md` – zusätzliche Hinweise für Entwicklungs-Assistenten.
+- `src/main.rs` – the whole app (Rust backend, database setup, embedded HTML/JS frontend).
+- `notice.db` – SQLite database, created at runtime (in `.gitignore`).
+- `screenshots/` – screenshots of the UI (board, calendar, detail modal).
+- `AGENTS.md` – extra notes for development assistants.
 
 ---
 
-## `// TECHNISCHE NOTIZEN`
+## `// TECHNICAL NOTES`
 
-- `sqlx` verbindet via `sqlite://notice.db?mode=rwc`; `?mode=rwc` legt die Datei bei Bedarf an.
-- Die SQL-Queries sind Laufzeit-Strings (keine `sqlx::query!`-Makros) – keine compilierten SQL-Checks.
-- Die Frontend-Bibliotheken (Vue production, Tailwind, marked) sind **lokal eingebettet** (offline-fähig) statt CDN.
-- Die gesamte UI und alle Texte sind auf **Deutsch**.
-- Kein Test-/Lint-/CI-Setup; verifiziert per `cargo build` + manuellem Smoke-Test.
+- `sqlx` connects via `sqlite://notice.db?mode=rwc`; `?mode=rwc` creates the file when needed.
+- The SQL queries are runtime strings (no `sqlx::query!` macros) – no compile-time SQL checks.
+- The frontend libraries (Vue production, Tailwind, marked) are **embedded locally** (offline-capable) instead of a CDN.
+- The whole UI and all texts are in **German**.
+- No test/lint/CI setup; verified via `cargo build` + manual smoke test.

@@ -542,7 +542,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         .dept-tag-sm { font-size: 8px; padding: 0px 4px; }
         .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
         .cal-header { font-size: 10px; text-transform: uppercase; color: var(--text-faint); text-align: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
-        .cal-day { min-height: 72px; padding: 3px 4px; border: 1px solid var(--border); font-size: 10px; position: relative; cursor: pointer; }
+        .cal-day { min-height: 72px; padding: 3px 4px; border: 1px solid var(--border); font-size: 10px; position: relative; cursor: pointer; min-width: 0; overflow: hidden; }
         .cal-day:hover { background: rgba(113, 113, 122, 0.15); }
         .cal-day-num { font-weight: bold; margin-bottom: 2px; }
         .cal-day-num.today { color: var(--green); }
@@ -553,9 +553,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         .cal-event-apt { background: rgba(5, 150, 105, 0.12); border-left: 2px solid #10b981; color: var(--green-bright); }
         .cal-event-overdue { background: rgba(239, 68, 68, 0.12); border-left: 2px solid #ef4444; color: var(--red-bright); }
         .cal-week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-        .cal-week-col { border: 1px solid var(--border); min-height: 400px; padding: 2px; }
+        .cal-week-col { border: 1px solid var(--border); min-height: 400px; padding: 0; overflow: hidden; }
         .cal-week-header { text-align: center; font-size: 10px; font-weight: bold; padding: 4px; border-bottom: 1px solid var(--border); }
         .cal-week-header.today { color: var(--green); }
+        .cal-timeline { --pix-per-hour: 36px; position: relative; }
+        .cal-timeline-lane { position: relative; }
+        .cal-timeline-hour { position: absolute; left: 0; right: 0; height: 36px; border-bottom: 1px solid var(--border); pointer-events: none; }
+        .cal-timeline-time { position: absolute; left: 2px; z-index: 3; font-size: 8px; color: var(--text-faint); pointer-events: none; }
+        .cal-timeline-block { position: absolute; z-index: 2; overflow-y: auto; font-size: 9px; line-height: 1.2; padding: 1px 2px; border-left: 2px solid; white-space: normal; overflow-wrap: break-word; cursor: pointer; box-sizing: border-box; }
+        .cal-timeline-allday { font-size: 9px; }
+        .cal-timeline-block.cal-event-apt { background: rgba(5, 150, 105, 0.18); border-left-color: #10b981; color: var(--green-bright); }
+        .cal-timeline-block.cal-event-overdue { background: rgba(239, 68, 68, 0.18); border-left-color: #ef4444; color: var(--red-bright); }
+        .cal-timeline-block.cal-event-due { background: rgba(37, 99, 235, 0.18); border-left-color: #3b82f6; color: var(--blue-bright); }
         .apt-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--apt-bg); border: 1px solid var(--border); font-size: 11px; min-width: 0; overflow: hidden; }
         .apt-item:hover { border-color: var(--border-hover); }
     </style>
@@ -585,6 +594,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     :title="isDark ? 'Zum hellen Modus wechseln' : 'Zum dunklen Modus wechseln'"
                     class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
                     {{ isDark ? '☀' : '☾' }}
+                </button>
+                <button 
+                    @click="isSettingsOpen = !isSettingsOpen"
+                    title="Einstellungen"
+                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    ⚙
                 </button>
             </div>
 
@@ -693,10 +708,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             @dblclick="openModal(note)"
                             class="bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group relative"
                             :class="column.id === 'archived' ? 'opacity-70 border-zinc-200 dark:border-zinc-800' : {
-                                'border-red-500/80 bg-red-950/10': note.priority === 'high' && note.status !== 'done',
-                                'border-amber-500/80 bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
-                                'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900': note.priority === 'low' && note.status !== 'done',
-                                'border-emerald-600/70 bg-emerald-950/15': note.status === 'done'
+                                'bg-red-950/10': note.priority === 'high' && note.status !== 'done',
+                                'bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
+                                'bg-zinc-50 dark:bg-zinc-900': note.priority === 'low' && note.status !== 'done',
+                                'bg-emerald-950/15': note.status === 'done'
                             }"
                         >
                             <div class="flex justify-between items-start gap-1 mb-1.5">
@@ -726,10 +741,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <span v-else-if="note.due_date" class="text-zinc-600 dark:text-zinc-500 font-mono">Fällig: {{ fmtDate(note.due_date) }}</span>
                                 <span v-else class="text-zinc-400 dark:text-zinc-600 font-mono">Kein Datum</span>
                                 </template>
-                                <span class="uppercase tracking-widest text-[9px] px-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800" :class="{
-                                    'text-emerald-600 dark:text-emerald-400 border-emerald-900/50': note.status === 'done',
-                                    'text-zinc-600 dark:text-zinc-500': column.id === 'archived',
-                                    'text-zinc-600 dark:text-zinc-400': column.id !== 'archived' && note.status !== 'done'
+                                <span class="uppercase tracking-widest text-[9px] font-bold px-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800" :class="{
+                                    'text-emerald-600 dark:text-emerald-400 border-emerald-500/60 dark:border-emerald-400/50': note.status === 'done',
+                                    'text-red-600 dark:text-red-400 border-red-500/60 dark:border-red-500/50': column.id !== 'archived' && note.status !== 'done' && note.priority === 'high',
+                                    'text-amber-600 dark:text-amber-400 border-amber-500/60 dark:border-amber-500/50': column.id !== 'archived' && note.status !== 'done' && note.priority === 'medium',
+                                    'text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-600': column.id !== 'archived' && note.status !== 'done' && note.priority === 'low',
+                                    'text-zinc-600 dark:text-zinc-500 border-zinc-300 dark:border-zinc-700': column.id === 'archived'
                                 }">
                                     {{ column.id === 'archived' ? 'ARCH' : (note.status === 'done' ? 'DONE' : note.priority) }}
                                 </span>
@@ -767,13 +784,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                         <div class="flex gap-1">
                             <button 
-                                @click="calViewMode = 'month'"
-                                :class="calViewMode === 'month' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300'"
-                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-300 dark:border-zinc-700 cursor-pointer">Monat</button>
-                            <button 
                                 @click="calViewMode = 'week'"
                                 :class="calViewMode === 'week' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300'"
                                 class="px-2 py-0.5 text-[10px] font-bold border border-zinc-300 dark:border-zinc-700 cursor-pointer">Woche</button>
+                            <button 
+                                @click="calViewMode = 'month'"
+                                :class="calViewMode === 'month' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300'"
+                                class="px-2 py-0.5 text-[10px] font-bold border border-zinc-300 dark:border-zinc-700 cursor-pointer">Monat</button>
                             <button 
                                 @click="calViewMode = 'year'"
                                 :class="calViewMode === 'year' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-500 hover:text-zinc-700 dark:text-zinc-300'"
@@ -796,8 +813,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     <span v-for="(dot, di) in day.dots.slice(0, 4)" :key="di" class="cal-dot" :class="dot.cls"></span>
                                 </div>
                                 <div class="mt-0.5 space-y-0.5 max-h-16 overflow-hidden">
-                                    <div v-for="(ev, ei) in day.events.slice(0, 3)" :key="ei" class="cal-event-item" :class="ev.cls" :title="ev.title">
-                                        {{ ev.title }}
+                                    <div v-for="(ev, ei) in day.events.slice(0, 3)" :key="ei" class="cal-event-item cursor-pointer" :class="ev.cls" :title="ev.title" @click.stop="openModal(notesById[ev.noteId])">
+                                        <span class="truncate">{{ ev.title }}</span>
+                                        <span v-if="ev.departments && ev.departments.length" class="flex flex-wrap gap-0.5 mt-0.5">
+                                            <span v-for="(dept, di) in ev.departments" :key="di" class="dept-tag dept-tag-sm">{{ dept }}</span>
+                                        </span>
                                     </div>
                                     <div v-if="day.events.length > 3" class="text-[8px] text-zinc-600 dark:text-zinc-500 px-1">+{{ day.events.length - 3 }} weitere</div>
                                 </div>
@@ -807,19 +827,42 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                     <!-- Week View -->
                     <div v-if="calViewMode === 'week'" class="flex-1 overflow-auto">
-                        <div class="cal-week-grid">
-                            <div 
-                                v-for="(day, idx) in calWeekDays" 
-                                :key="idx"
-                                class="cal-week-col"
-                                @click="calDayClick(day)">
-                                <div class="cal-week-header" :class="{ 'today': day.isToday }">
-                                    {{ day.names }}<br>{{ fmtDate(dateStr(day.date)) }}
+                        <div class="flex" style="--pix-per-hour:36px">
+                            <div class="shrink-0" style="width:32px">
+                                <div class="cal-week-header">&nbsp;<br>&nbsp;</div>
+                                <div class="relative" style="height:864px">
+                                    <div v-for="h in calHours.slice(0, 24)" :key="h" class="cal-timeline-time" :style="{ top: (h * 36 + 3) + 'px' }">{{ h }}:00</div>
                                 </div>
-                                <div class="mt-1 space-y-1">
-                                    <div v-for="(ev, ei) in day.events" :key="ei" class="cal-event-item" :class="ev.cls" :title="ev.title" @click.stop="calDayClick(day)">
-                                        <span v-if="ev.time" class="font-bold">{{ ev.time }}</span>
-                                        {{ ev.title }}
+                            </div>
+                            <div class="cal-week-grid flex-1">
+                                <div 
+                                    v-for="(day, idx) in calWeekDays" 
+                                    :key="idx"
+                                    class="cal-week-col flex flex-col" style="min-height:0"
+                                    @click="calDayClick(day)">
+                                    <div class="cal-week-header" :class="{ 'today': day.isToday }">
+                                        {{ day.names }}<br>{{ day.date.getDate() }}.
+                                    </div>
+                                    <div class="cal-timeline-lane flex-1 relative" style="height:864px">
+                                        <div v-for="h in calHours.slice(0, 23)" :key="'h'+h" class="cal-timeline-hour" :style="{ top: h * 36 + 'px' }"></div>
+                                        <div v-if="day.allday.length" class="absolute top-0 left-0 right-0 bg-zinc-50/90 dark:bg-zinc-900/90 border-b border-zinc-200 dark:border-zinc-800 px-0.5 py-0.5" style="z-index:3">
+                                            <div v-for="(ev, ei) in day.allday" :key="'a'+ei" class="cal-event-item" :class="ev.cls" :title="ev.title" @click.stop="openModal(notesById[ev.noteId])">
+                                                {{ ev.title }}
+                                            </div>
+                                        </div>
+                                        <div 
+                                            v-for="(b, bi) in day.blocks" 
+                                            :key="'b'+bi"
+                                            class="cal-timeline-block" :class="b.cls" :title="b.title"
+                                            :style="{ top: (b.startMin / 60) * 36 + 'px', height: (b.heightMin / 60) * 36 + 'px', left: 'calc(' + b.leftPct + '% + 1px)', width: 'calc(' + b.widthPct + '% - 1px)' }"
+                                            @click.stop="openModal(notesById[b.noteId])">
+                                            <span v-if="b.time" class="font-bold">{{ b.time }}</span>
+                                            <span class="block leading-tight">{{ b.aptTitle }}</span>
+                                            <span class="block text-zinc-500 dark:text-zinc-400 leading-tight">{{ b.noteTitle }}</span>
+                                            <span v-if="b.departments && b.departments.length" class="flex flex-wrap gap-0.5 mt-0.5">
+                                                <span v-for="(dept, di) in b.departments" :key="di" class="dept-tag dept-tag-sm">{{ dept }}</span>
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -829,7 +872,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     <!-- Year View -->
                     <div v-if="calViewMode === 'year'" class="flex-1 overflow-auto p-2">
                         <div class="grid grid-cols-3 md:grid-cols-4 gap-3">
-                            <div v-for="(month, mi) in calYearMonths" :key="mi" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2">
+                            <div v-for="(month, mi) in calYearMonths" :key="mi" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2 overflow-hidden">
                                 <div class="text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">{{ month.name }}</div>
                                 <div class="cal-grid" style="gap:0">
                                     <div v-for="d in ['M','D','M','D','F','S','S']" :key="d" class="text-[8px] text-zinc-400 dark:text-zinc-600 text-center">{{ d }}</div>
@@ -837,12 +880,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         v-for="(day, idx) in month.days" 
                                         :key="idx"
                                         class="text-center py-0.5 text-[9px] relative cursor-pointer hover:bg-zinc-200 dark:bg-zinc-800"
-                                        :class="{ 'text-zinc-400 dark:text-zinc-600': !day.currentMonth, 'text-emerald-600 dark:text-emerald-400 font-bold': day.isToday, 'text-zinc-700 dark:text-zinc-300': day.currentMonth && !day.isToday }"
                                         @click="calDayClick(day)">
-                                        {{ day.date.getDate() }}
-                                        <div v-if="day.dots.length > 0" class="flex justify-center gap-px mt-px">
-                                            <span v-for="(dot, di) in day.dots.slice(0, 3)" :key="di" class="cal-dot" :class="dot.cls" style="width:3px;height:3px"></span>
-                                        </div>
+                                        <span 
+                                            class="inline-block px-0.5"
+                                            :class="day.frameCls + ' ' + (day.isToday ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (!day.currentMonth ? 'text-zinc-400 dark:text-zinc-600' : 'text-zinc-700 dark:text-zinc-300'))">
+                                            {{ day.date.getDate() }}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -857,7 +900,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                         <div v-if="calSelectedDayEvents.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic">Keine Termine an diesem Tag.</div>
                         <div class="space-y-1">
-                            <div v-for="(ev, ei) in calSelectedDayEvents" :key="ei" class="apt-item" :class="ev.cls">
+                            <div v-for="(ev, ei) in calSelectedDayEvents" :key="ei" class="apt-item cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-500" :class="ev.cls" @click="openModal(notesById[ev.noteId])">
                                 <span class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtAptRange(ev) }}</span>
                                 <span class="flex-1 min-w-0 truncate">{{ ev.title }}</span>
                                 <span class="text-[9px] text-zinc-400 dark:text-zinc-600 shrink-0">{{ ev.source }}</span>
@@ -868,6 +911,56 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             </template>
 
         </main>
+
+        <!-- Settings modal -->
+        <div v-if="isSettingsOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @click.stop="isSettingsOpen = false">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-md flex flex-col shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Einstellungen</span>
+                    <button @click="isSettingsOpen = false" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                </div>
+                <div class="p-3 flex flex-col gap-4 bg-zinc-100 dark:bg-zinc-950">
+                    <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col gap-2">
+                        <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-1 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Auto-Archiv</span>
+                        <label class="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                            <input type="checkbox" v-model="autoArchiveEnabled" class="accent-emerald-600 cursor-pointer">
+                            Abgeschlossene Notizen automatisch archivieren
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] text-zinc-600 dark:text-zinc-400">Ab Tag des Monats:</span>
+                            <input 
+                                type="number" min="1" max="31"
+                                v-model.number="autoArchiveDay"
+                                :disabled="!autoArchiveEnabled"
+                                class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 w-16 focus:outline-none focus:border-emerald-500 disabled:opacity-40">
+                        </div>
+                        <p class="text-[9px] text-zinc-400 dark:text-zinc-600 leading-tight" v-if="autoArchiveEnabled">
+                            Beim Start der App werden ab dem {{ autoArchiveDay }}. des Monats alle Notizen mit Status "Abgeschlossen" ins Archiv verschoben.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Overdue appointment reminder (floating panel, z-40) -->
+        <div v-if="reminderOpen" class="fixed bottom-3 right-3 w-full max-w-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 flex flex-col shadow-2xl z-40">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
+                <span class="text-xs font-bold tracking-widest text-red-600 dark:text-red-400 uppercase">Abgelaufene Termine</span>
+                <button @click="reminderOpen = false" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">[x]</button>
+            </div>
+            <div class="p-3 flex flex-col gap-1.5 bg-zinc-100 dark:bg-zinc-950 max-h-60 overflow-y-auto">
+                <p class="text-[10px] text-zinc-600 dark:text-zinc-400">
+                    {{ overdueReminders.length }} {{ overdueReminders.length === 1 ? 'Termin/Fälligkeit ist' : 'Termine/Fälligkeiten sind' }} bereits vorbei.
+                </p>
+                <div v-for="(r, ri) in overdueReminders" :key="ri" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-1.5 flex items-center gap-1.5">
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-[10px] text-zinc-800 dark:text-zinc-200 truncate">{{ r.kind === 'apt' ? (r.note.title + ' – ' + (r.apt.title || 'Termin')) : ('Fällig: ' + r.note.title) }}</span>
+                        <span class="block text-zinc-600 dark:text-zinc-400 font-mono text-[9px] whitespace-nowrap">{{ r.range }}</span>
+                    </span>
+                    <button @click="openNoteFromReminder(ri)" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-600 text-zinc-700 dark:text-zinc-300 hover:text-white px-2 py-0.5 text-[9px] border border-zinc-300 dark:border-zinc-700 font-bold cursor-pointer shrink-0">Öffnen</button>
+                </div>
+            </div>
+        </div>
 
         <!-- New note form -->
         <div v-if="isNewNoteOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @keydown.enter="handleNewNoteEnter">
@@ -1300,7 +1393,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
     </div>
 
     <script>
-        const { createApp, ref, computed, onMounted, onUnmounted } = Vue
+        const { createApp, ref, computed, watch, onMounted, onUnmounted } = Vue
 
         createApp({
             setup() {
@@ -1354,7 +1447,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 // Calendar view
                 const activeView = ref('board')
-                const calViewMode = ref('month')
+                const calViewMode = ref('week')
                 const calCursor = ref(new Date())
                 const calSelectedDay = ref(null)
 
@@ -1376,6 +1469,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     document.documentElement.classList.toggle('dark', isDark.value)
                     localStorage.setItem('notice-theme', isDark.value ? 'dark' : 'light')
                 }
+
+                // Settings (auto-archive)
+                const isSettingsOpen = ref(false)
+                const autoArchiveEnabled = ref(localStorage.getItem('notice-autoarchive-enabled') === '1')
+                const autoArchiveDay = ref(parseInt(localStorage.getItem('notice-autoarchive-day') || '1', 10) || 1)
+                watch([autoArchiveEnabled, autoArchiveDay], () => {
+                    localStorage.setItem('notice-autoarchive-enabled', autoArchiveEnabled.value ? '1' : '0')
+                    localStorage.setItem('notice-autoarchive-day', String(autoArchiveDay.value || 1))
+                })
 
                 // Department suggestions (for new note form & detail modal)
                 const departments = ref([])
@@ -1431,12 +1533,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 })
 
                 const notes = ref([])
+                const notesById = computed(() => Object.fromEntries(notes.value.map(n => [n.id, n])))
 
                 const fetchNotes = async () => {
                     try {
                         const res = await fetch('/api/notes')
                         if (res.ok) {
                             notes.value = await res.json()
+                            runStartupChecks()
                         }
                     } catch (e) {
                         console.error('Fehler beim Laden der Notizen', e)
@@ -1805,6 +1909,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     closeContextMenu()
                     showAutocomplete.value = false
                     clearTimeout(autocompleteTimer)
+                    collectOverdueReminders()
                 }
 
                 // Context menu logic
@@ -2077,6 +2182,94 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     } catch (e) {
                         console.error('Fehler beim Status-Update', e)
                     }
+                }
+
+                // --- Auto-archive (settings) ---
+                const autoArchiveDone = async () => {
+                    if (!autoArchiveEnabled.value) return
+                    const now = new Date()
+                    if (now.getDate() < (autoArchiveDay.value || 1)) return
+                    const candidates = notes.value.filter(n => n.status === 'done')
+                    for (const note of candidates) {
+                        await archiveNote(note)
+                    }
+                }
+
+                // --- Overdue appointment reminder (Feature 3) ---
+                const reminderOpen = ref(false)
+                const overdueReminders = ref([])
+                const isAppointmentOverdue = (apt) => {
+                    if (!apt.start) return false
+                    const todayStr = dateStr(new Date())
+                    const nowH = new Date()
+                    const nowMin = nowH.getHours() * 60 + nowH.getMinutes()
+                    if (apt.end) {
+                        if (apt.end < todayStr) return true
+                        if (apt.end > todayStr) return false
+                        if (apt.endTime) {
+                            const m = apt.endTime.match(/^(\d{1,2}):(\d{2})/)
+                            if (m) return nowMin > (parseInt(m[1], 10) * 60 + parseInt(m[2], 10))
+                        }
+                        return false
+                    }
+                    if (apt.start < todayStr) return true
+                    if (apt.start > todayStr) return false
+                    if (apt.time) {
+                        const m = apt.time.match(/^(\d{1,2}):(\d{2})/)
+                        if (m) return nowMin > (parseInt(m[1], 10) * 60 + parseInt(m[2], 10))
+                    }
+                    return false
+                }
+
+                const collectOverdueReminders = () => {
+                    const list = []
+                    notes.value.forEach(note => {
+                        if (note.status === 'archived' || note.status === 'done') return
+                        const appts = getAppointments(note)
+                        appts.forEach(apt => {
+                            if (isAppointmentOverdue(apt)) {
+                                const ev = {
+                                    title: `${note.title} – ${apt.title || 'Termin'}`,
+                                    time: apt.time || '',
+                                    start: apt.start,
+                                    end: apt.end || '',
+                                    endTime: apt.endTime || ''
+                                }
+                                list.push({
+                                    note,
+                                    apt,
+                                    kind: 'apt',
+                                    range: fmtAptRange(ev)
+                                })
+                            }
+                        })
+                        if (isOverdue(note)) {
+                            list.push({
+                                note,
+                                apt: { title: 'Fällig', start: note.due_date },
+                                kind: 'due',
+                                range: 'Fällig: ' + fmtDate(note.due_date)
+                            })
+                        }
+                    })
+                    overdueReminders.value = list
+                    reminderOpen.value = list.length > 0
+                }
+
+                const openNoteFromReminder = (ri) => {
+                    const r = overdueReminders.value[ri]
+                    if (!r) return
+                    openModal(r.note)
+                    overdueReminders.value.splice(ri, 1)
+                    if (overdueReminders.value.length === 0) reminderOpen.value = false
+                }
+
+                let startupChecksDone = false
+                const runStartupChecks = async () => {
+                    if (startupChecksDone) return
+                    startupChecksDone = true
+                    await autoArchiveDone()
+                    collectOverdueReminders()
                 }
 
                 // --- Drag & drop sorting ---
@@ -2464,9 +2657,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 const overdue = apt.start < ds && !apt.end
                                 events.push({
                                     title: `${note.title} – ${apt.title || 'Termin'}`,
+                                    aptTitle: apt.title || 'Termin',
+                                    noteTitle: note.title,
                                     time: apt.time || '',
                                     cls: overdue ? 'cal-event-overdue' : 'cal-event-apt',
                                     source: note.title,
+                                    noteId: note.id,
+                                    departments: getDepartments(note),
                                     start: apt.start,
                                     end: apt.end || '',
                                     endTime: apt.endTime || ''
@@ -2477,9 +2674,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             const overdue = note.due_date < dateStr(new Date())
                             events.push({
                                 title: `Fällig: ${note.title}`,
+                                aptTitle: 'Fällig',
+                                noteTitle: note.title,
                                 time: '',
                                 cls: overdue ? 'cal-event-overdue' : 'cal-event-due',
-                                source: note.title
+                                source: note.title,
+                                noteId: note.id,
+                                departments: getDepartments(note)
                             })
                         }
                     })
@@ -2500,12 +2701,25 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         if (ev.cls === 'cal-event-apt') return aptStr
                         return dueStr
                     })
+                    let frameCls = ''
+                    if (events.length > 0) {
+                        let prio = 0
+                        for (const ev of events) {
+                            if (ev.cls === 'cal-event-overdue') prio = Math.max(prio, 3)
+                            else if (ev.cls === 'cal-event-apt') prio = Math.max(prio, 2)
+                            else prio = Math.max(prio, 1)
+                        }
+                        frameCls = prio === 3 ? 'ring-1 ring-red-400 dark:ring-red-500' :
+                            prio === 2 ? 'ring-1 ring-emerald-400 dark:ring-emerald-500' :
+                            'ring-1 ring-blue-400 dark:ring-blue-500'
+                    }
                     return {
                         date: d,
                         currentMonth,
                         isToday: ds === todayStr,
                         dots,
-                        events
+                        events,
+                        frameCls
                     }
                 }
 
@@ -2526,6 +2740,94 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     return result
                 })
 
+                const calHours = Array.from({ length: 25 }, (_, h) => h)
+
+                const calWeekBlocks = (events, ds) => {
+                    const allday = []
+                    const timed = []
+                    events.forEach(ev => {
+                        let startMin = -1
+                        let endMin = -1
+                        const stime = ev.time || ''
+                        if (/^\d{1,2}:\d{2}$/.test(stime)) {
+                            const isMulti = ev.start && ev.end && ev.end > ev.start
+                            const isStartDay = ds === ev.start
+                            const isEndDay = isMulti && ds === ev.end
+                            if (isStartDay) {
+                                const hm = stime.split(':')
+                                startMin = parseInt(hm[0], 10) * 60 + parseInt(hm[1], 10)
+                                if (isMulti) {
+                                    endMin = 1440
+                                } else if (ev.endTime && /^\d{1,2}:\d{2}$/.test(ev.endTime)) {
+                                    const ehm = ev.endTime.split(':')
+                                    endMin = parseInt(ehm[0], 10) * 60 + parseInt(ehm[1], 10)
+                                } else {
+                                    endMin = Math.min(1440, startMin + 60)
+                                }
+                            } else if (isEndDay) {
+                                startMin = 0
+                                if (ev.endTime && /^\d{1,2}:\d{2}$/.test(ev.endTime)) {
+                                    const ehm = ev.endTime.split(':')
+                                    endMin = parseInt(ehm[0], 10) * 60 + parseInt(ehm[1], 10)
+                                } else {
+                                    endMin = 1440
+                                }
+                            } else if (isMulti) {
+                                startMin = 0
+                                endMin = 1440
+                            } else {
+                                const hm = stime.split(':')
+                                startMin = parseInt(hm[0], 10) * 60 + parseInt(hm[1], 10)
+                                if (ev.endTime && /^\d{1,2}:\d{2}$/.test(ev.endTime)) {
+                                    const ehm = ev.endTime.split(':')
+                                    endMin = parseInt(ehm[0], 10) * 60 + parseInt(ehm[1], 10)
+                                } else {
+                                    endMin = Math.min(1440, startMin + 60)
+                                }
+                            }
+                        }
+                        if (startMin < 0) {
+                            allday.push(ev)
+                        } else {
+                            timed.push({ ev, startMin, endMin: Math.max(endMin, startMin + 15) })
+                        }
+                    })
+                    // Overlap nesting: assign lanes greedily by start time.
+                    timed.sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin)
+                    const lanes = []  // lanes[i] = { endMin }
+                    let laneCount = 0
+                    for (const t of timed) {
+                        let placed = lanes.findIndex(l => t.startMin >= l.endMin)
+                        if (placed < 0) {
+                            placed = lanes.length
+                            lanes.push({ endMin: 0 })
+                            laneCount = Math.max(laneCount, placed + 1)
+                        }
+                        lanes[placed] = { endMin: t.endMin }
+                        t.lane = placed
+                    }
+                    const blocks = timed.map(t => {
+                        const widthPct = laneCount > 0 ? (100 / laneCount) : 100
+                        return {
+                            ev: t.ev,
+                            cls: t.ev.cls,
+                            title: t.ev.title,
+                            aptTitle: t.ev.aptTitle,
+                            noteTitle: t.ev.noteTitle,
+                            time: (t.startMin > 0 || (t.ev.end && t.ev.end === ds)) ? t.ev.time : '',
+                            noteId: t.ev.noteId,
+                            departments: t.ev.departments || [],
+                            startMin: t.startMin,
+                            heightMin: t.endMin - t.startMin,
+                            lane: t.lane,
+                            laneCount,
+                            leftPct: (t.lane / laneCount) * 100,
+                            widthPct
+                        }
+                    })
+                    return { allday, blocks, laneCount }
+                }
+
                 const calWeekDays = computed(() => {
                     const now = calCursor.value
                     const dayOfWeek = (now.getDay() + 6) % 7
@@ -2536,11 +2838,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     for (let i = 0; i < 7; i++) {
                         const d = new Date(start)
                         d.setDate(start.getDate() + i)
+                        const ds = dateStr(d)
+                        const events = calEventsForDate(d)
+                        const { allday, blocks, laneCount } = calWeekBlocks(events, ds)
                         result.push({
                             date: d,
-                            isToday: dateStr(d) === dateStr(new Date()),
+                            isToday: ds === dateStr(new Date()),
                             names: names[i],
-                            events: calEventsForDate(d)
+                            events,
+                            allday,
+                            blocks,
+                            laneCount,
+                            dateStr: ds
                         })
                     }
                     return result
@@ -2653,12 +2962,19 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         }
                     }
                     draggedNote.value = null
+                    collectOverdueReminders()
                 }
 
                 return {
                     activeView,
                     isDark,
                     toggleTheme,
+                    isSettingsOpen,
+                    autoArchiveEnabled,
+                    autoArchiveDay,
+                    reminderOpen,
+                    overdueReminders,
+                    openNoteFromReminder,
                     newNoteTitle,
                     newNotePriority,
                     newNoteDueDate,
@@ -2702,6 +3018,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     newNoteStepInputRef,
                     columns,
                     notes,
+                    notesById,
                     isModalOpen,
                     isPreviewMode,
                     activeNote,
@@ -2778,6 +3095,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     calMonthDays,
                     calWeekDays,
                     calYearMonths,
+                    calHours,
                     calTitle,
                     calToday,
                     calNavigate,
