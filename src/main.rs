@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,7 @@ use std::net::SocketAddr;
 #[derive(Clone)]
 struct AppState {
     pool: SqlitePool,
+    db: SqlitePool,
 }
 
 #[derive(Serialize, Deserialize, FromRow, Clone)]
@@ -27,6 +28,40 @@ struct Note {
     departments: Option<String>,
     appointments: Option<String>,
     sort_order: i64,
+    completed_at: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, FromRow, Clone)]
+struct Contact {
+    id: i64,
+    name: String,
+    department: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateContact {
+    name: String,
+    department: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateContact {
+    name: Option<String>,
+    department: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DeleteDepartment {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -129,15 +164,62 @@ async fn main() {
     .execute(&pool)
     .await;
 
-    let state = AppState { pool };
+    // Migration: add completed_at column (tracks when a note was finished/archived)
+    let _ = sqlx::query("ALTER TABLE notes ADD COLUMN completed_at TEXT")
+        .execute(&pool)
+        .await;
+
+    // Data database (contacts.db): separate SQLite DB for contacts & future data-view types
+    let db = SqlitePool::connect("sqlite://contacts.db?mode=rwc")
+        .await
+        .expect("Fehler beim Verbinden mit der Kontakte-Datenbank");
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS contacts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            department TEXT,
+            phone TEXT,
+            email TEXT,
+            description TEXT
+        )
+        "#,
+    )
+    .execute(&db)
+    .await
+    .expect("Fehler beim Erstellen der Kontakte-Tabelle");
+
+    // Seed sample contacts on first run (empty table)
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contacts")
+        .fetch_one(&db)
+        .await
+        .unwrap_or(0);
+    if count == 0 {
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO contacts (name, department, phone, email, description) VALUES
+                ('Max Mustermann', 'Küche', '030 12345678', 'max.mustermann@example.de', 'Küchenchef, verantwortlich für den Speiseplan.'),
+                ('Erika Musterfrau', 'Verwaltung', '030 87654321', 'erika.musterfrau@example.de', 'Leiterin der Verwaltung, Ansprechpartnerin für Rechnungen.')
+            "#,
+        )
+        .execute(&db)
+        .await;
+    }
+
+    let state = AppState { pool, db };
 
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/api/notes", get(get_notes).post(create_note))
         .route("/api/notes/search", get(search_notes))
         .route("/api/departments", get(get_departments))
+        .route("/api/departments/delete", post(delete_department))
         .route("/api/notes/:id", post(update_note).put(update_note).delete(delete_note))
         .route("/api/notes/:id/duplicate", post(duplicate_note))
+        .route("/api/contacts", get(get_contacts).post(create_contact))
+        .route("/api/contacts/search", get(search_contacts))
+        .route("/api/contacts/:id", put(update_contact).delete(delete_contact))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
@@ -156,7 +238,7 @@ async fn index_handler() -> Html<String> {
 }
 
 async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order FROM notes ORDER BY sort_order ASC, id ASC")
+    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at FROM notes ORDER BY sort_order ASC, id ASC")
         .fetch_all(&state.pool)
         .await
     {
@@ -315,6 +397,7 @@ async fn update_note(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
+    let was_active = existing.status != "done" && existing.status != "archived";
     let title = payload.title.unwrap_or(existing.title);
     let content = payload.content.unwrap_or(existing.content);
     let status = payload.status.unwrap_or(existing.status);
@@ -328,9 +411,19 @@ async fn update_note(
     let appointments = payload.appointments.or(existing.appointments);
     let sort_order = payload.sort_order.unwrap_or(existing.sort_order);
 
+    let is_active = status != "done" && status != "archived";
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let completed_at = if !was_active && !is_active {
+        existing.completed_at.clone()
+    } else if is_active {
+        None
+    } else {
+        Some(today)
+    };
+
     let result = sqlx::query(
         r#"
-        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, department = ?, departments = ?, appointments = ?, sort_order = ? WHERE id = ?
+        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, department = ?, departments = ?, appointments = ?, sort_order = ?, completed_at = ? WHERE id = ?
         "#,
     )
     .bind(title)
@@ -342,6 +435,7 @@ async fn update_note(
     .bind(departments)
     .bind(appointments)
     .bind(sort_order)
+    .bind(completed_at)
     .bind(id)
     .execute(&state.pool)
     .await;
@@ -417,6 +511,257 @@ async fn duplicate_note(
                 return (StatusCode::CREATED, Json(note)).into_response();
             }
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn get_contacts(State(state): State<AppState>) -> impl IntoResponse {
+    match sqlx::query_as::<_, Contact>(
+        "SELECT id, name, department, phone, email, description FROM contacts ORDER BY LOWER(name) ASC, id ASC",
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(contacts) => Json(contacts).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn create_contact(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateContact>,
+) -> impl IntoResponse {
+    let name = payload.name.trim().to_string();
+    if name.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let department = payload
+        .department
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let phone = payload
+        .phone
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let email = payload
+        .email
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let description = payload
+        .description
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let result = sqlx::query(
+        "INSERT INTO contacts (name, department, phone, email, description) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(name)
+    .bind(department)
+    .bind(phone)
+    .bind(email)
+    .bind(description)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(res) => {
+            let id = res.last_insert_rowid();
+            if let Ok(contact) =
+                sqlx::query_as::<_, Contact>("SELECT * FROM contacts WHERE id = ?")
+                    .bind(id)
+                    .fetch_one(&state.db)
+                    .await
+            {
+                return (StatusCode::CREATED, Json(contact)).into_response();
+            }
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn update_contact(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateContact>,
+) -> impl IntoResponse {
+    let existing = match sqlx::query_as::<_, Contact>("SELECT * FROM contacts WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        Ok(Some(c)) => c,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    let name = match payload.name {
+        Some(s) => {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+            t
+        }
+        None => existing.name,
+    };
+    let department = payload
+        .department
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(existing.department);
+    let phone = payload
+        .phone
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(existing.phone);
+    let email = payload
+        .email
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(existing.email);
+    let description = payload
+        .description
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(existing.description);
+
+    let result = sqlx::query(
+        "UPDATE contacts SET name = ?, department = ?, phone = ?, email = ?, description = ? WHERE id = ?",
+    )
+    .bind(name)
+    .bind(department)
+    .bind(phone)
+    .bind(email)
+    .bind(description)
+    .bind(id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => {
+            if let Ok(contact) =
+                sqlx::query_as::<_, Contact>("SELECT * FROM contacts WHERE id = ?")
+                    .bind(id)
+                    .fetch_one(&state.db)
+                    .await
+            {
+                return Json(contact).into_response();
+            }
+            StatusCode::OK.into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn delete_contact(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM contacts WHERE id = ?")
+        .bind(id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn search_contacts(
+    State(state): State<AppState>,
+    Query(params): Query<SearchQuery>,
+) -> impl IntoResponse {
+    let q = params.q.unwrap_or_default().trim().to_lowercase();
+    if q.is_empty() {
+        return Json(Vec::<serde_json::Value>::new()).into_response();
+    }
+    let pattern = format!("%{}%", q);
+    match sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, name FROM contacts WHERE LOWER(name) LIKE ? ORDER BY LOWER(name) ASC LIMIT 8",
+    )
+    .bind(pattern)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(results) => {
+            let json: Vec<serde_json::Value> = results
+                .into_iter()
+                .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+                .collect();
+            Json(json).into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn delete_department(
+    State(state): State<AppState>,
+    Json(payload): Json<DeleteDepartment>,
+) -> impl IntoResponse {
+    let name = payload.name.trim().to_lowercase();
+    if name.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    // Update the notes pool: remove the department from every note's departments JSON array,
+    // and clear the legacy single-value department column where it matches.
+    let notes_result = sqlx::query(
+        r#"
+        UPDATE notes
+        SET departments = (
+            SELECT COALESCE(json_group_array(e.value), '[]')
+            FROM json_each(COALESCE(notes.departments, '[]')) AS e
+            WHERE LOWER(TRIM(e.value)) != LOWER(?)
+              AND TRIM(e.value) != ''
+        ),
+        department = CASE WHEN LOWER(TRIM(department)) = LOWER(?) THEN NULL ELSE department END
+        "#,
+    )
+    .bind(&name)
+    .bind(&name)
+    .execute(&state.pool)
+    .await;
+
+    // Update the contacts db: clear the department field where it matches.
+    let contacts_result = sqlx::query(
+        "UPDATE contacts SET department = NULL WHERE LOWER(TRIM(department)) = LOWER(?)",
+    )
+    .bind(&name)
+    .execute(&state.db)
+    .await;
+
+    if notes_result.is_err() || contacts_result.is_err() {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    // Return the freshly aggregated department list
+    match sqlx::query_as::<_, (String, i64)>(
+        r#"
+        SELECT dep.value AS name, COUNT(*) AS cnt
+        FROM notes,
+             json_each(COALESCE(notes.departments, '[]')) AS dep
+        WHERE json_type(COALESCE(notes.departments, '[]')) IS NOT NULL
+        GROUP BY LOWER(dep.value)
+        ORDER BY cnt DESC, LOWER(dep.value) ASC
+        "#,
+    )
+    .fetch_all(&state.pool)
+    .await
+    {
+        Ok(results) => {
+            let json: Vec<serde_json::Value> = results
+                .into_iter()
+                .filter(|(dep, _)| !dep.is_empty())
+                .map(|(dep, count)| serde_json::json!({ "name": dep, "count": count }))
+                .collect();
+            Json(json).into_response()
         }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -508,6 +853,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         /* User-defined colors for markdown HTML output */
         .markdown-body span[style*="color"] { opacity: 0.9; }
         .note-link { color: var(--green); text-decoration: underline; cursor: pointer; }
+        .address-link { color: var(--violet-bright, #8b5cf6); text-decoration: underline; cursor: pointer; }
+        .address-link:hover { background: rgba(139, 92, 246, 0.12); }
         .note-link:hover { color: var(--green-hover); background: rgba(52, 211, 153, 0.1); }
         .autocomplete-dropdown { position: absolute; z-index: 70; min-width: 220px; max-width: 320px; }
         .autocomplete-item { cursor: pointer; }
@@ -573,10 +920,16 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
     <div id="app" class="h-screen flex flex-col" @click="closeContextMenu">
         <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-4">
             <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
-                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.2
+                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.3
             </h1>
 
-            <div class="flex gap-1 shrink-0">
+            <div class="flex gap-1 shrink-0 flex-wrap justify-center">
+                <button 
+                    @click="activeView = 'dashboard'"
+                    :class="activeView === 'dashboard' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
+                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    DASHBOARD
+                </button>
                 <button 
                     @click="activeView = 'board'"
                     :class="activeView === 'board' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
@@ -588,6 +941,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     :class="activeView === 'calendar' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
                     class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
                     KALENDER
+                </button>
+                <button 
+                    @click="activeView = 'addressbook'"
+                    :class="activeView === 'addressbook' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
+                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    ADRESSBUCH
+                </button>
+                <button 
+                    @click="activeView = 'data'"
+                    :class="activeView === 'data' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
+                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    DATEN
                 </button>
                 <button 
                     @click="toggleTheme" 
@@ -910,6 +1275,223 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 </div>
             </template>
 
+            <!-- DASHBOARD VIEW -->
+            <template v-if="activeView === 'dashboard'">
+                <div class="flex-1 flex flex-col overflow-hidden">
+                    <div class="flex items-center justify-between mb-1.5 shrink-0">
+                        <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Übersicht</span>
+                        <button @click="openNewNote" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors">
+                            + HINZUFÜGEN
+                        </button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto space-y-3 min-h-0">
+                        <!-- Today's tasks -->
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Heutige Aufgaben</span>
+                                <span v-if="dashboardTodayEvents.length" class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ dashboardTodayEvents.length }} × heute</span>
+                            </div>
+                            <div v-if="dashboardTodayEvents.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic">Keine Termine oder Fälligkeiten für heute.</div>
+                            <div class="space-y-1">
+                                <div v-for="(ev, i) in dashboardTodayEvents" :key="'t'+i"
+                                    class="flex items-center gap-2 text-[11px] px-2 py-1.5 border border-zinc-200 dark:border-zinc-800 cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-500"
+                                    :class="ev.cls === 'cal-event-overdue' ? 'bg-red-950/10' : (ev.cls === 'cal-event-apt' ? 'bg-emerald-950/10' : 'bg-blue-950/10')"
+                                    @click="openModal(notesById[ev.noteId])">
+                                    <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="ev.cls === 'cal-event-overdue' ? 'bg-red-500' : (ev.cls === 'cal-event-apt' ? 'bg-emerald-500' : 'bg-blue-500')"></span>
+                                    <span v-if="ev.time" class="font-mono text-zinc-500 dark:text-zinc-400 shrink-0">{{ ev.time }}</span>
+                                    <span class="min-w-0 flex-1 truncate">{{ ev.aptTitle !== 'Fällig' ? ev.title : ('Fällig: ' + ev.noteTitle) }}</span>
+                                    <span v-if="getDepartments(notesById[ev.noteId]).length" class="flex flex-wrap gap-0.5 shrink-0">
+                                        <span v-for="(dept, di) in getDepartments(notesById[ev.noteId])" :key="di" class="dept-tag dept-tag-sm">{{ dept }}</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Overdue -->
+                        <div v-if="overdueNotes.length" class="bg-zinc-50 dark:bg-zinc-900 border border-red-800/40 dark:border-red-900/40 p-2.5">
+                            <span class="text-[11px] font-bold text-red-600 dark:text-red-400 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Überfällig ({{ overdueNotes.length }})</span>
+                            <div class="space-y-1 mt-1.5">
+                                <div v-for="(n, i) in overdueNotes" :key="'o'+i"
+                                    class="flex items-center gap-2 text-[11px] px-2 py-1.5 border border-zinc-200 dark:border-zinc-800 cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-500 bg-red-950/5"
+                                    @click="openModal(n)">
+                                    <span class="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shrink-0"></span>
+                                    <span class="min-w-0 flex-1 truncate">{{ n.title }}</span>
+                                    <span class="text-red-600 dark:text-red-400/90 font-mono text-[10px] shrink-0">Fällig: {{ fmtDate(n.due_date) }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Upcoming appointments -->
+                        <div v-if="dashboardUpcoming.length" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Kommende Termine</span>
+                            <div class="space-y-1 mt-1.5">
+                                <div v-for="(u, i) in dashboardUpcoming" :key="'u'+i"
+                                    class="flex items-center gap-2 text-[11px] px-2 py-1.5 border border-zinc-200 dark:border-zinc-800 cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-500"
+                                    @click="openModal(notesById[u.noteId])">
+                                    <span class="font-mono text-zinc-500 dark:text-zinc-400 shrink-0">{{ u.start === dateStr(new Date()) ? 'Heute' : fmtDate(u.start) }}<template v-if="u.time"> {{ u.time }}</template></span>
+                                    <span class="min-w-0 flex-1 truncate">{{ u.title }}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Stats grid -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <!-- Status distribution -->
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Status</span>
+                                <div class="space-y-1.5 mt-2">
+                                    <div v-for="row in dashboardStatusRows" :key="row.id" class="flex items-center gap-2">
+                                        <span class="w-16 shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{{ row.title.replace(/^\d+_/, '') }}</span>
+                                        <div class="flex-1 h-3 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                                            <div class="h-full" :style="{ width: row.pct + '%' }" :class="row.color"></div>
+                                        </div>
+                                        <span class="w-6 shrink-0 text-[10px] text-right text-zinc-600 dark:text-zinc-400">{{ row.count }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Priority distribution -->
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Priorität</span>
+                                <div class="space-y-1.5 mt-2">
+                                    <div v-for="row in dashboardPriorityRows" :key="row.label" class="flex items-center gap-2">
+                                        <span class="w-16 shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400 capitalize">{{ row.label }}</span>
+                                        <div class="flex-1 h-3 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                                            <div class="h-full" :style="{ width: row.pct + '%' }" :class="row.color"></div>
+                                        </div>
+                                        <span class="w-6 shrink-0 text-[10px] text-right text-zinc-600 dark:text-zinc-400">{{ row.count }}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Activity over time -->
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Fertiggestellt (letzte {{ dashboardActivityDays }} Tage)</span>
+                                <div v-if="dashboardActivity.length" class="flex items-end gap-0.5 h-24 mt-2">
+                                    <div v-for="(d, i) in dashboardActivity" :key="i" class="flex-1 flex flex-col items-center justify-end min-w-0" :title="d.label + ': ' + d.count">
+                                        <div class="w-full max-w-[14px]" :style="{ height: d.height + 'px' }" :class="d.count ? 'bg-emerald-500' : 'bg-zinc-200 dark:bg-zinc-800'"></div>
+                                    </div>
+                                </div>
+                                <div v-else class="text-[10px] text-zinc-400 dark:text-zinc-600 italic mt-2">Keine abgeschlossenen Notizen im Zeitraum.</div>
+                            </div>
+
+                            <!-- Todo progress -->
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">To-do-Fortschritt</span>
+                                <div v-if="dashboardTodo.total > 0" class="mt-2">
+                                    <div class="flex items-center justify-between text-[11px] text-zinc-600 dark:text-zinc-400 mb-1">
+                                        <span>{{ dashboardTodo.done }} von {{ dashboardTodo.total }} erledigt</span>
+                                        <span class="font-mono">{{ dashboardTodo.pct }}%</span>
+                                    </div>
+                                    <div class="h-3 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                                        <div class="h-full bg-emerald-500 transition-all" :style="{ width: dashboardTodo.pct + '%' }"></div>
+                                    </div>
+                                </div>
+                                <div v-else class="text-[10px] text-zinc-400 dark:text-zinc-600 italic mt-2">Keine Checklisten-Einträge.</div>
+                            </div>
+                        </div>
+
+                        <!-- Department distribution -->
+                        <div v-if="dashboardDeptRows.length" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Aktivität nach Einrichtung</span>
+                            <div class="space-y-1.5 mt-2">
+                                <div v-for="row in dashboardDeptRows" :key="row.name" class="flex items-center gap-2">
+                                    <span class="w-28 shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400 truncate">{{ row.name }}</span>
+                                    <div class="flex-1 h-3 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+                                        <div class="h-full bg-violet-500" :style="{ width: row.pct + '%' }" :title="row.name + ': ' + row.count + ' Notizen'"></div>
+                                    </div>
+                                    <span class="w-6 shrink-0 text-[10px] text-right text-zinc-600 dark:text-zinc-400">{{ row.count }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- ADDRESS BOOK VIEW -->
+            <template v-if="activeView === 'addressbook'">
+                <div class="flex-1 flex flex-col overflow-hidden">
+                    <div class="flex items-center justify-between mb-1.5 shrink-0">
+                        <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Adressbuch</span>
+                        <div class="flex items-center gap-2">
+                            <input v-model="contactFilter" type="text" placeholder="Suchen..." class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 w-48">
+                            <button @click="openContactModal()" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors">
+                                + NEU
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex-1 overflow-y-auto min-h-0">
+                        <div v-if="filteredContacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">Keine Kontakte gefunden.</div>
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase border-b border-zinc-200 dark:border-zinc-800">
+                                    <th class="py-1.5 px-2 font-bold">Name</th>
+                                    <th class="py-1.5 px-2 font-bold">Einrichtung</th>
+                                    <th class="py-1.5 px-2 font-bold">Telefon</th>
+                                    <th class="py-1.5 px-2 font-bold">E-Mail</th>
+                                    <th class="py-1.5 px-2 font-bold"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="c in filteredContacts" :key="c.id"
+                                    class="border-b border-zinc-100 dark:border-zinc-900 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                                    :class="highlightContactId === c.id ? 'bg-emerald-100/70 dark:bg-emerald-900/30' : ''"
+                                    @click="openContactModal(c)">
+                                    <td class="py-1.5 px-2 text-xs text-zinc-800 dark:text-zinc-200">{{ c.name }}</td>
+                                    <td class="py-1.5 px-2">
+                                        <span v-if="c.department" class="dept-tag dept-tag-sm">{{ c.department }}</span>
+                                        <span v-else class="text-zinc-400 dark:text-zinc-600 text-[10px]">–</span>
+                                    </td>
+                                    <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.phone || '–' }}</td>
+                                    <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.email || '–' }}</td>
+                                    <td class="py-1.5 px-2 text-right">
+                                        <button @click.stop="deleteContact(c)"
+                                            class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+
+            <!-- DATA OVERVIEW VIEW -->
+            <template v-if="activeView === 'data'">
+                <div class="flex-1 flex flex-col overflow-hidden">
+                    <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase mb-1.5 shrink-0">Daten-Übersicht</span>
+                    <div class="flex-1 overflow-y-auto space-y-3 min-h-0">
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Einrichtungen / Departments</span>
+                            <div v-if="departments.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">Keine Departments angelegt.</div>
+                            <div class="space-y-1 mt-1.5">
+                                <div v-for="d in departments" :key="d.name" class="flex items-center justify-between gap-2 px-2 py-1.5 border border-zinc-200 dark:border-zinc-800">
+                                    <span class="text-[11px] text-zinc-800 dark:text-zinc-200">{{ d.name }}</span>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ d.count }} Note{{ d.count === 1 ? '' : 'n' }}</span>
+                                        <button @click="deleteDepartment(d.name)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Kontakte (Adressbuch)</span>
+                            <div v-if="contacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">Keine Kontakte angelegt.</div>
+                            <div class="space-y-1 mt-1.5">
+                                <div v-for="c in contacts" :key="c.id" class="flex items-center justify-between gap-2 px-2 py-1.5 border border-zinc-200 dark:border-zinc-800 cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-500" @click="openContactModal(c)">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="text-[11px] text-zinc-800 dark:text-zinc-200">{{ c.name }}</span>
+                                        <span v-if="c.department" class="dept-tag dept-tag-sm">{{ c.department }}</span>
+                                        <span v-if="c.phone" class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ c.phone }}</span>
+                                    </div>
+                                    <button @click.stop="deleteContact(c)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
         </main>
 
         <!-- Settings modal -->
@@ -937,6 +1519,48 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         <p class="text-[9px] text-zinc-400 dark:text-zinc-600 leading-tight" v-if="autoArchiveEnabled">
                             Beim Start der App werden ab dem {{ autoArchiveDay }}. des Monats alle Notizen mit Status "Abgeschlossen" ins Archiv verschoben.
                         </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contact modal -->
+        <div v-if="contactModalOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @click.stop="contactModalOpen = false">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-md flex flex-col shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">{{ contactForm.id ? 'Kontakt bearbeiten' : 'Neuer Kontakt' }}</span>
+                    <button @click="contactModalOpen = false" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                </div>
+                <div class="p-3 flex flex-col gap-3 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        Name
+                        <input v-model="contactForm.name" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        Einrichtung (Department)
+                        <input v-model="contactForm.department" type="text" list="contact-dept-list" placeholder="Auswählen oder eingeben..."
+                            class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                        <datalist id="contact-dept-list">
+                            <option v-for="d in departments" :key="d.name" :value="d.name"></option>
+                        </datalist>
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        Telefon
+                        <input v-model="contactForm.phone" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        E-Mail
+                        <input v-model="contactForm.email" type="email" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        Beschreibung
+                        <textarea v-model="contactForm.description" rows="3" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 resize-y"></textarea>
+                    </label>
+                    <div class="flex justify-end gap-2 mt-1">
+                        <button @click="contactModalOpen = false" class="px-3 py-1 text-xs border border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 cursor-pointer">Abbrechen</button>
+                        <button @click="saveContact" :disabled="!contactForm.name.trim()"
+                            :class="contactForm.name.trim() ? 'bg-emerald-700 hover:bg-emerald-600 cursor-pointer' : 'opacity-40 cursor-not-allowed'"
+                            class="px-3 py-1 text-xs border border-emerald-600 text-white dark:text-zinc-100 font-semibold">Speichern</button>
                     </div>
                 </div>
             </div>
@@ -1445,14 +2069,16 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const modalAptEndTime = ref('')
                 const modalAptHasEnd = ref(false)
 
-                // Calendar view
-                const activeView = ref('board')
+                // Views / navigation
+                const activeView = ref(localStorage.getItem('notice-view') || 'dashboard')
+                watch(activeView, (v) => localStorage.setItem('notice-view', v))
                 const calViewMode = ref('week')
                 const calCursor = ref(new Date())
                 const calSelectedDay = ref(null)
 
-                // Autocomplete state for [[ links
+                // Autocomplete state for [[ note links and {{ address links
                 const showAutocomplete = ref(false)
+                const autocompleteType = ref('note')
                 const autocompleteResults = ref([])
                 const autocompleteIndex = ref(0)
                 const autocompleteQuery = ref('')
@@ -1557,6 +2183,208 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         console.error('Fehler beim Laden der Departments', e)
                     }
                 }
+
+                // --- Address book (contacts) ---
+                const contacts = ref([])
+                const contactFilter = ref('')
+                const contactModalOpen = ref(false)
+                const contactForm = ref({ id: null, name: '', department: '', phone: '', email: '', description: '' })
+                const highlightContactId = ref(null)
+
+                const filteredContacts = computed(() => {
+                    const q = contactFilter.value.trim().toLowerCase()
+                    if (!q) return contacts.value
+                    return contacts.value.filter(c =>
+                        (c.name || '').toLowerCase().includes(q) ||
+                        (c.department || '').toLowerCase().includes(q) ||
+                        (c.phone || '').toLowerCase().includes(q) ||
+                        (c.email || '').toLowerCase().includes(q)
+                    )
+                })
+
+                const fetchContacts = async () => {
+                    try {
+                        const res = await fetch('/api/contacts')
+                        if (res.ok) contacts.value = await res.json()
+                    } catch (e) {
+                        console.error('Fehler beim Laden der Kontakte', e)
+                    }
+                }
+
+                const openContactModal = (contact) => {
+                    if (contact && contact.id) {
+                        contactForm.value = { ...contact }
+                    } else {
+                        contactForm.value = { id: null, name: '', department: '', phone: '', email: '', description: '' }
+                    }
+                    contactModalOpen.value = true
+                }
+
+                const saveContact = async () => {
+                    if (!contactForm.value.name.trim()) return
+                    const f = contactForm.value
+                    const url = f.id ? `/api/contacts/${f.id}` : '/api/contacts'
+                    const method = f.id ? 'PUT' : 'POST'
+                    try {
+                        const res = await fetch(url, {
+                            method,
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                name: f.name,
+                                department: f.department || null,
+                                phone: f.phone || null,
+                                email: f.email || null,
+                                description: f.description || null
+                            })
+                        })
+                        if (res.ok) {
+                            contactModalOpen.value = false
+                            await fetchContacts()
+                        }
+                    } catch (e) {
+                        console.error('Fehler beim Speichern des Kontakts', e)
+                    }
+                }
+
+                const deleteContact = async (contact) => {
+                    if (!confirm(`Kontakt "${contact.name}" wirklich löschen?`)) return
+                    try {
+                        const res = await fetch(`/api/contacts/${contact.id}`, { method: 'DELETE' })
+                        if (res.ok) {
+                            if (highlightContactId.value === contact.id) highlightContactId.value = null
+                            await fetchContacts()
+                        }
+                    } catch (e) {
+                        console.error('Fehler beim Löschen des Kontakts', e)
+                    }
+                }
+
+                const deleteDepartment = async (name) => {
+                    if (!confirm(`Department "${name}" wirklich löschen? Es wird aus allen Notizen und Kontakten entfernt.`)) return
+                    try {
+                        const res = await fetch('/api/departments/delete', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name })
+                        })
+                        if (res.ok) {
+                            departments.value = await res.json()
+                            await fetchNotes()
+                            await fetchContacts()
+                        }
+                    } catch (e) {
+                        console.error('Fehler beim Löschen des Departments', e)
+                    }
+                }
+
+                // --- Dashboard computeds ---
+                const dashboardActivityDays = 30
+                const todayDS = () => dateStr(new Date())
+
+                const dashboardTodayEvents = computed(() => calEventsForDate(new Date()))
+
+                const overdueNotes = computed(() => notes.value.filter(n => isOverdue(n)))
+
+                const dashboardUpcoming = computed(() => {
+                    const today = todayDS()
+                    const list = []
+                    notes.value.forEach(note => {
+                        if (note.status === 'archived') return
+                        getAppointments(note).forEach(apt => {
+                            if (!apt.start) return
+                            if (apt.start >= today) {
+                                const isOverdueApt = apt.start < today
+                                list.push({
+                                    title: `${note.title} – ${apt.title || 'Termin'}`,
+                                    noteId: note.id,
+                                    start: apt.start,
+                                    time: apt.time || ''
+                                })
+                            }
+                        })
+                    })
+                    list.sort((a, b) => (a.start + ' ' + a.time).localeCompare(b.start + ' ' + b.time))
+                    return list.slice(0, 10)
+                })
+
+                const dashboardStatusRows = computed(() => {
+                    const total = Math.max(notes.value.length, 1)
+                    return columns.map(col => {
+                        const count = notes.value.filter(n => n.status === col.id).length
+                        const color = {
+                            backlog: 'bg-zinc-400 dark:bg-zinc-500',
+                            in_progress: 'bg-blue-500',
+                            review: 'bg-amber-500',
+                            done: 'bg-emerald-500',
+                            archived: 'bg-zinc-300 dark:bg-zinc-700'
+                        }[col.id]
+                        return { id: col.id, title: col.title, count, pct: Math.round((count / total) * 100), color }
+                    })
+                })
+
+                const dashboardPriorityRows = computed(() => {
+                    const active = notes.value.filter(n => n.status !== 'done' && n.status !== 'archived')
+                    const total = Math.max(active.length, 1)
+                    return [
+                        { label: 'hoch', count: active.filter(n => n.priority === 'high').length, color: 'bg-red-500' },
+                        { label: 'mittel', count: active.filter(n => n.priority === 'medium').length, color: 'bg-amber-500' },
+                        { label: 'niedrig', count: active.filter(n => n.priority === 'low').length, color: 'bg-zinc-400 dark:bg-zinc-500' }
+                    ].map(r => ({ ...r, pct: Math.round((r.count / total) * 100) }))
+                })
+
+                const dashboardTodo = computed(() => {
+                    let done = 0, total = 0
+                    notes.value.forEach(note => {
+                        if (note.status === 'archived') return
+                        const p = getChecklistProgress(note)
+                        if (p) { done += p.done; total += p.total }
+                    })
+                    return { done, total, pct: total ? Math.round((done / total) * 100) : 0 }
+                })
+
+                const dashboardDeptRows = computed(() => {
+                    const map = {}
+                    notes.value.forEach(note => {
+                        if (note.status === 'archived') return
+                        getDepartments(note).forEach(dep => {
+                            const key = dep.toLowerCase()
+                            map[key] = map[key] || { name: dep, count: 0 }
+                            map[key].count++
+                        })
+                    })
+                    const rows = Object.values(map)
+                    const total = Math.max(rows.reduce((s, r) => s + r.count, 0), 1)
+                    return rows
+                        .sort((a, b) => b.count - a.count)
+                        .map(r => ({ ...r, pct: Math.round((r.count / total) * 100) }))
+                })
+
+                const dashboardActivity = computed(() => {
+                    const days = dashboardActivityDays
+                    const counts = new Array(days).fill(0)
+                    const labels = []
+                    const today = new Date()
+                    for (let i = days - 1; i >= 0; i--) {
+                        const d = new Date(today)
+                        d.setDate(today.getDate() - i)
+                        labels.push(dateStr(d))
+                    }
+                    const indexOf = (s) => labels.indexOf(s)
+                    notes.value.forEach(note => {
+                        if (note.status !== 'done' && note.status !== 'archived') return
+                        let ds = note.completed_at
+                        if (!ds) ds = note.date ? convertDateToISO(note.date) : null
+                        if (!ds) return
+                        const idx = indexOf(ds)
+                        if (idx >= 0) counts[idx]++
+                    })
+                    const max = Math.max(1, ...counts)
+                    return counts.map((c, i) => ({
+                        label: labels[i],
+                        count: c,
+                        height: Math.round((c / max) * 60) + (c ? 4 : 2)
+                    }))
+                })
 
                 const deptContext = computed(() => {
                     if (deptDropdownSource.value === 'modal') {
@@ -1712,6 +2540,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     document.documentElement.classList.toggle('dark', isDark.value)
                     fetchNotes()
                     fetchDepartments()
+                    fetchContacts()
                     window.addEventListener('keydown', handleGlobalKeydown, { capture: true })
                 })
 
@@ -1935,11 +2764,17 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 // --- Autocomplete for [[ note links ---
-                const searchNotesAutocomplete = async (q) => {
+                const searchAutocomplete = async (q) => {
                     try {
-                        const res = await fetch(`/api/notes/search?q=${encodeURIComponent(q)}`)
+                        const url = autocompleteType.value === 'address'
+                            ? `/api/contacts/search?q=${encodeURIComponent(q)}`
+                            : `/api/notes/search?q=${encodeURIComponent(q)}`
+                        const res = await fetch(url)
                         if (res.ok) {
-                            const data = await res.json()
+                            let data = await res.json()
+                            if (autocompleteType.value === 'address') {
+                                data = data.map(c => ({ id: c.id, title: c.name }))
+                            }
                             autocompleteResults.value = data
                             autocompleteIndex.value = 0
                             showAutocomplete.value = true
@@ -2024,7 +2859,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         const cursor = Math.min(ta.selectionStart, text.length)
                         const start = Math.min(autocompleteStart.value, cursor)
                         const removeFrom = Math.max(0, start - 2)
-                        if (text.substring(removeFrom, cursor).startsWith('[[')) {
+                        const before = text.substring(removeFrom, start)
+                        if (before === '[[' || before === '{{') {
                             acSetContent(text.substring(0, removeFrom) + text.substring(cursor))
                             const target = removeFrom
                             requestAnimationFrame(() => {
@@ -2043,39 +2879,53 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     const ta = acTextarea()
                     if (!ta) return
                     // Prefer the DOM value (source of truth) since v-model may not be in sync yet.
-                    // If the DOM value is significantly shorter than the cursor (v-model hasn't caught up),
-                    // use the DOM value directly.
                     const text = acTextareaValue()
                     const cursor = ta.selectionStart
-
-                    // If the cursor is beyond the current text content (v-model not yet in sync),
-                    // use the text near the cursor as source to find [[
                     const effectiveCursor = Math.min(cursor, text.length)
 
-                    // Search backwards for "[["
-                    const lastOpen = text.lastIndexOf('[[', effectiveCursor)
-                    if (lastOpen === -1) {
+                    // Detect the nearest active opener ([[ or {{) before the cursor
+                    const openNote = text.lastIndexOf('[[', effectiveCursor)
+                    const openAddr = text.lastIndexOf('{{', effectiveCursor)
+                    let opener = -1
+                    let kind = null
+                    if (openNote >= 0 && openNote >= openAddr) {
+                        opener = openNote
+                        kind = 'note'
+                    } else if (openAddr >= 0) {
+                        opener = openAddr
+                        kind = 'address'
+                    } else {
+                        opener = -1
+                        kind = null
+                    }
+
+                    if (opener === -1 || !kind) {
                         showAutocomplete.value = false
+                        autocompleteType.value = 'note'
                         return
                     }
-                    // Close if "]]" lies between [[ and the cursor
-                    const between = text.substring(lastOpen + 2, effectiveCursor)
-                    if (between.includes(']]')) {
+                    const between = text.substring(opener + 2, effectiveCursor)
+                    // Close if the closer already lies between the opener and cursor
+                    const endMarker = kind === 'note' ? ']]' : '}}'
+                    if (between.includes(endMarker)) {
                         showAutocomplete.value = false
+                        autocompleteType.value = 'note'
                         return
                     }
-                    // Stop after "|" (display title is being typed)
+                    // Stop after "|" (display alias is being typed)
                     if (between.includes('|')) {
                         showAutocomplete.value = false
+                        autocompleteType.value = 'note'
                         return
                     }
 
-                    autocompleteStart.value = lastOpen + 2
+                    autocompleteType.value = kind
+                    autocompleteStart.value = opener + 2
                     autocompleteQuery.value = between
                     updateAutocompletePos()
                     clearTimeout(autocompleteTimer)
                     autocompleteTimer = setTimeout(() => {
-                        searchNotesAutocomplete(between)
+                        searchAutocomplete(between)
                     }, 200)
                 }
 
@@ -2084,14 +2934,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (!ta) return
                     const selected = autocompleteResults.value[index]
                     if (!selected) return
+                    const closer = autocompleteType.value === 'address' ? '}}' : ']]'
                     const text = acTextareaValue()
                     const cursor = Math.min(ta.selectionStart, text.length)
                     const start = Math.min(autocompleteStart.value, cursor)
-                    // Replace [[partial with [[Full title
-                    const newText = text.substring(0, start) + selected.title + ']]' + text.substring(cursor)
+                    // Replace opener+partial with opener+Full title+closer
+                    const newText = text.substring(0, start) + selected.title + closer + text.substring(cursor)
                     acSetContent(newText)
                     showAutocomplete.value = false
-                    // Move the cursor after ]]
+                    // Move the cursor after the closer
                     requestAnimationFrame(() => {
                         if (ta) {
                             const newCursor = start + selected.title.length + 2
@@ -2126,6 +2977,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 const handleNoteLinkClick = (e) => {
+                    const addrLink = e.target.closest('.address-link')
+                    if (addrLink) {
+                        handleAddressLinkClick(e)
+                        return
+                    }
                     const link = e.target.closest('.note-link')
                     if (!link) return
                     e.preventDefault()
@@ -2135,6 +2991,31 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         openModal(note)
                     } else {
                         alert(`Notiz "${title}" nicht gefunden.`)
+                    }
+                }
+
+                // --- Address links in preview: {{Name|display}} ---
+                const processAddressLinks = (html) => {
+                    return html.replace(/\{\{([^}|]+)(?:\|([^}]+))?\}\}/g, (match, name, display) => {
+                        const safeName = name.replace(/"/g, '&quot;')
+                        const safeDisplay = (display || name).replace(/"/g, '&quot;')
+                        return `<a class="note-link address-link" data-address-name="${safeName}">${safeDisplay}</a>`
+                    })
+                }
+
+                const handleAddressLinkClick = (e) => {
+                    const link = e.target.closest('.address-link')
+                    if (!link) return
+                    e.preventDefault()
+                    const name = link.getAttribute('data-address-name')
+                    const contact = contacts.value.find(c => (c.name || '') === name)
+                    if (contact) {
+                        highlightContactId.value = contact.id
+                        activeView.value = 'addressbook'
+                    } else {
+                        highlightContactId.value = null
+                        activeView.value = 'addressbook'
+                        contactFilter.value = name
                     }
                 }
 
@@ -2369,7 +3250,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const renderedMarkdown = computed(() => {
                     if (!activeNote.value || !activeNote.value.content) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
                     const html = marked.parse(activeNote.value.content)
-                    return processNoteLinks(html)
+                    return processAddressLinks(processNoteLinks(html))
                 })
 
                 const saveActiveNote = async () => {
@@ -2632,6 +3513,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 // --- Calendar logic ---
                 const dateStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+
+                const convertDateToISO = (v) => {
+                    if (!v) return null
+                    const m = String(v).match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/)
+                    if (m) return `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}`
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return String(v)
+                    return null
+                }
 
                 const fmtDate = (v) => {
                     if (!v) return ''
@@ -3104,7 +3993,30 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     calSelectedDayEvents,
                     fmtDate,
                     fmtAptRange,
-                    dateStr
+                    dateStr,
+                    convertDateToISO,
+                    processAddressLinks,
+                    handleAddressLinkClick,
+                    contacts,
+                    contactFilter,
+                    contactModalOpen,
+                    contactForm,
+                    highlightContactId,
+                    filteredContacts,
+                    fetchContacts,
+                    openContactModal,
+                    saveContact,
+                    deleteContact,
+                    deleteDepartment,
+                    dashboardTodayEvents,
+                    overdueNotes,
+                    dashboardUpcoming,
+                    dashboardStatusRows,
+                    dashboardPriorityRows,
+                    dashboardActivity,
+                    dashboardActivityDays,
+                    dashboardTodo,
+                    dashboardDeptRows
                 }
             }
         }).mount('#app')
