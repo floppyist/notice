@@ -559,7 +559,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         .cal-timeline { --pix-per-hour: 36px; position: relative; }
         .cal-timeline-lane { position: relative; }
         .cal-timeline-hour { position: absolute; left: 0; right: 0; height: 36px; border-bottom: 1px solid var(--border); pointer-events: none; }
-        .cal-timeline-time { position: absolute; left: 2px; z-index: 3; font-size: 8px; color: var(--text-faint); pointer-events: none; }
+        .cal-timeline-time { position: absolute; left: 2px; z-index: 3; font-size: 8px; color: var(--text-faint); pointer-events: none; transform: translateY(-50%); }
         .cal-timeline-block { position: absolute; z-index: 2; overflow-y: auto; font-size: 9px; line-height: 1.2; padding: 1px 2px; border-left: 2px solid; white-space: normal; overflow-wrap: break-word; cursor: pointer; box-sizing: border-box; }
         .cal-timeline-allday { font-size: 9px; }
         .cal-timeline-block.cal-event-apt { background: rgba(5, 150, 105, 0.18); border-left-color: #10b981; color: var(--green-bright); }
@@ -829,9 +829,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     <div v-if="calViewMode === 'week'" class="flex-1 overflow-auto">
                         <div class="flex" style="--pix-per-hour:36px">
                             <div class="shrink-0" style="width:32px">
-                                <div class="cal-week-header">&nbsp;<br>&nbsp;</div>
-                                <div class="relative" style="height:864px">
-                                    <div v-for="h in calHours.slice(0, 24)" :key="h" class="cal-timeline-time" :style="{ top: (h * 36 + 3) + 'px' }">{{ h }}:00</div>
+                                <div class="cal-week-header" style="border-bottom:0">&nbsp;<br>&nbsp;</div>
+                                <div class="relative" style="height:864px;margin-top:2px">
+                                    <div v-for="h in calHours.slice(0, 24)" :key="h" class="cal-timeline-time" :style="{ top: (h * 36) + 'px' }">{{ h }}:00</div>
                                 </div>
                             </div>
                             <div class="cal-week-grid flex-1">
