@@ -1,5 +1,5 @@
 <p align="center">
-  <b><span style="color:#34d399">■</span> NOTICE_V1.2</b> — <i>Pro Kanban Notes</i>
+  <b><span style="color:#34d399">■</span> NOTICE_V1.4</b> — <i>Pro Kanban Notes</i>
 </p>
 
 <p align="center">
@@ -9,9 +9,13 @@
 
 ---
 
-## `// VIEWS` — Board & Calendar
+## `// VIEWS` — Dashboard, Board, Calendar, Address book
 
-Two views can be switched via the header bar (`BOARD` / `CALENDAR`).
+Several views can be switched via the header bar (`DASHBOARD` / `BOARD` / `KALENDER` / `ADRESSBUCH` / `DATEN`). The first opened view is the **Dashboard**; afterwards the chosen view is remembered.
+
+![Dashboard](screenshots/dashboard.png)
+
+**Dashboard** – default start view with statistics: today's tasks and upcoming appointments, overdue items, status & priority distribution, completed activity over the last 30 days, to-do/checklist progress and activity by department.
 
 ![Board view](screenshots/board.png)
 
@@ -20,6 +24,14 @@ Two views can be switched via the header bar (`BOARD` / `CALENDAR`).
 ![Calendar view (month)](screenshots/kalender.png)
 
 **Calendar** – Outlook-style view with `MONTH`, `WEEK` and `YEAR`. Cards with a due date appear as **blue** markers, booked **appointments** as **green**, overdue ones as **red**. Archived notes are hidden.
+
+![Address book](screenshots/addressbook.png)
+
+**Address book** (`contacts.db`) – full contact management with name, department, phone, e-mail and description. Searchable, and clicking a contact row opens an edit modal.
+
+![Data overview](screenshots/data.png)
+
+**Data overview** – central list of all departments (with note counts, deletable) and all contacts.
 
 ![Detail modal](screenshots/detail.png)
 
@@ -35,8 +47,12 @@ Two views can be switched via the header bar (`BOARD` / `CALENDAR`).
 - **Calendar** (`MONTH` / `WEEK` / `YEAR`) combines `due_date` (blue), appointments (green) and overdue (red).
 - **New-note form** (`Alt+N`): title, status, priority, due date, content (Markdown), **checklist/steps** and **appointments**.
 - **Detail modal** (double-click): all fields incl. **departments** and **appointments**, with an **edit/preview toggle**.
-- **Markdown** for the content, incl. **supported HTML colors** and **cross-linked notes** via `[[Title|Display name]]` (with autocomplete).
+- **Markdown** for the content, incl. **supported HTML colors** and **cross-linked notes**: `[[Title|Display name]]` links other notes (with autocomplete), `{{Name|Alias}}` links **contacts** from the address book (with autocomplete). Clicking a note link opens that note; clicking an address link jumps to the address book and highlights the contact.
+- **Dashboard** statistics overview (default view): today's tasks, overdue, upcoming appointments, status/priority distribution, completed activity chart, to-do progress and activity by department.
+- **Address book** (`contacts.db`): full CRUD for contacts (name, department, phone, e-mail, description), searchable, department autocomplete reuses existing departments, seeded with sample contacts on first start.
 - **Departments**: optional per note, freely creatable, **autocomplete** (most frequent first, case-insensitive deduplication). On cards the departments render as **inline wrapping badges** (single line, no emoji).
+- **Data overview** (`DATEN`): central list of all **departments** (with note counts) and **contacts**. Deleting a department removes it from every note and contact.
+- **Completed tracking**: notes store a `completed_at` date when moved to `done`/`archived` (cleared again when reactivated); it powers the Dashboard activity chart.
 - **Appointments**: any number per note, with start, optional time (`HH:MM`), optional end date and end time.
 - **Week view** is a 24-hour timeline with position/styleable event blocks; overlapping events are placed side by side in lanes; timed and all-day events are handled separately.
 - **Drag & Drop** between columns as well as for reordering within a column; notes can be dragged directly into the **archive**.
@@ -64,7 +80,7 @@ cargo run
 # → serves at http://127.0.0.1:8080
 ```
 
-On first start, `notice.db` (SQLite) is created automatically. Existing databases are migrated with `ALTER TABLE` (e.g. `departments`, `appointments`), existing data is preserved.
+On first start, `notice.db` (SQLite, notes) and `contacts.db` (SQLite, address book) are created automatically. Existing databases are migrated with `ALTER TABLE` (e.g. `departments`, `appointments`, `completed_at`), existing data is preserved.
 
 ---
 
@@ -77,8 +93,9 @@ On first start, `notice.db` (SQLite) is created automatically. Existing database
 | Open a note in the detail modal | Double-click a card |
 | Toggle edit / preview | Button `Edit` / `Preview` |
 | Save (in the modal) | `Ctrl+S` |
-| Escape | Closes the modal/form or autocomplete (removes the `[[` remnant) |
+| Escape | Closes the modal/form or autocomplete (removes the `[[` / `{{` remnant) |
 | Link a note | `[[` in the content, then pick with `↑↓`/`Enter` |
+| Link a contact | `{{` in the content, then pick with `↑↓`/`Enter` |
 
 ### Departments
 
@@ -90,6 +107,13 @@ On first start, `notice.db` (SQLite) is created automatically. Existing database
 
 - In form and modal you can create appointments with `Start`, optional `Time` (`HH:MM`), optional `End` (date) and `End time`.
 - Appointments appear as **green** calendar entries and in the card/modal list under "Appointments".
+
+### Address book / Contacts
+
+- Contacts live in a separate `contacts.db` database and are managed in the **ADRESSBUCH** view (`+ NEU` to add, click a row to edit, `[X]` to delete).
+- Each contact has a name, an optional department (with the same autocomplete as notes), phone, e-mail and description.
+- From within any note content you can link a contact with `{{Name}}` or `{{Name|Alias}}` – the rendered preview is clickable and jumps to the address book, highlighting the contact.
+- The `DATEN` view also lists all contacts and lets you delete them.
 
 ---
 
@@ -148,6 +172,16 @@ Example `POST /api/notes`:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/departments` | `[{name, count}]`, sorted by frequency, case-insensitively deduplicated |
+| `POST` | `/api/departments/delete` | Body `{"name": …}` – deletes a department and removes it from every note and contact |
+
+### Contacts
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/contacts` | All contacts |
+| `POST` | `/api/contacts` | Create a contact |
+| `PUT` / `DELETE` | `/api/contacts/:id` | Update / delete a contact |
+| `GET` | `/api/contacts/search?q=…` | Search for the `{{` autocomplete |
 
 ---
 
@@ -168,14 +202,27 @@ Table `notes`:
 | `departments` | TEXT | JSON array of departments |
 | `appointments` | TEXT | JSON array of appointments |
 | `sort_order` | INTEGER | Sort order within a column |
+| `completed_at` | TEXT | Date (YYYY-MM-DD) the note was moved to `done`/`archived` (null when active) |
+
+Table `contacts` (in `contacts.db`):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | INTEGER (PK) | Auto ID |
+| `name` | TEXT | Full name |
+| `department` | TEXT | Optional department |
+| `phone` | TEXT | Optional phone number |
+| `email` | TEXT | Optional e-mail address |
+| `description` | TEXT | Optional notes |
 
 ---
 
 ## `// PROJECT STRUCTURE`
 
 - `src/main.rs` – the whole app (Rust backend, database setup, embedded HTML/JS frontend).
-- `notice.db` – SQLite database, created at runtime (in `.gitignore`).
-- `screenshots/` – screenshots of the UI (board, calendar, detail modal).
+- `notice.db` – SQLite database for notes, created at runtime (in `.gitignore`).
+- `contacts.db` – SQLite database for the address book, created at runtime (in `.gitignore`).
+- `screenshots/` – screenshots of the UI (dashboard, board, calendar, address book, data, detail modal).
 - `AGENTS.md` – extra notes for development assistants.
 
 ---

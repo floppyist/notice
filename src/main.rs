@@ -920,7 +920,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
     <div id="app" class="h-screen flex flex-col" @click="closeContextMenu">
         <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-4">
             <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
-                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.3
+                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.4
             </h1>
 
             <div class="flex gap-1 shrink-0 flex-wrap justify-center">
