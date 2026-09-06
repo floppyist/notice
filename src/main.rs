@@ -8,6 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use std::net::SocketAddr;
+use chrono::Datelike;
 
 #[derive(Clone)]
 struct AppState {
@@ -29,6 +30,7 @@ struct Note {
     appointments: Option<String>,
     sort_order: i64,
     completed_at: Option<String>,
+    repeat_rule: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, FromRow, Clone)]
@@ -74,6 +76,7 @@ struct CreateNote {
     department: Option<String>,
     departments: Option<String>,
     appointments: Option<String>,
+    repeat_rule: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -87,6 +90,7 @@ struct UpdateNote {
     departments: Option<String>,
     appointments: Option<String>,
     sort_order: Option<i64>,
+    repeat_rule: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -100,6 +104,7 @@ struct ImportNote {
     department: Option<String>,
     departments: Option<String>,
     appointments: Option<String>,
+    repeat_rule: Option<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -125,6 +130,76 @@ struct SearchQuery {
 
 // Create a consistent snapshot of a database into backups/ using VACUUM INTO,
 // keeping a rolling window of 10 snapshots per database.
+// Advance a YYYY-MM-DD date to its next occurrence for a repeat rule.
+fn add_month_clamped(d: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    let (y, m) = if d.month() == 12 {
+        (d.year() + 1, 1)
+    } else {
+        (d.year(), d.month() + 1)
+    };
+    let (ny, nm) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
+    let last = chrono::NaiveDate::from_ymd_opt(ny, nm, 1)?.pred_opt()?.day();
+    chrono::NaiveDate::from_ymd_opt(y, m, d.day().min(last))
+}
+
+fn advance_repeat_date(iso: &str, rule: &str) -> Option<String> {
+    let d = chrono::NaiveDate::parse_from_str(iso, "%Y-%m-%d").ok()?;
+    let next = match rule {
+        "daily" => d.succ_opt(),
+        "weekly" => d.checked_add_days(chrono::Days::new(7)),
+        "monthly" => add_month_clamped(d),
+        _ => None,
+    };
+    next.map(|nd| nd.format("%Y-%m-%d").to_string())
+}
+
+// Advance the start/end dates of every appointment inside the JSON-array string.
+fn advance_appointments(json: &str, rule: &str) -> String {
+    let fallback = json.to_string();
+    let mut arr: Vec<serde_json::Value> = serde_json::from_str(json).unwrap_or_else(|_| return vec![]);
+    for apt in arr.iter_mut() {
+        if let Some(obj) = apt.as_object_mut() {
+            if let Some(s) = obj.get("start").and_then(|v| v.as_str()) {
+                if let Some(ns) = advance_repeat_date(s, rule) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&format!("\"{}\"", ns)) {
+                        obj.insert("start".to_string(), v);
+                    }
+                }
+            }
+            if let Some(e) = obj.get("end").and_then(|v| v.as_str()) {
+                if let Some(ne) = advance_repeat_date(e, rule) {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&format!("\"{}\"", ne)) {
+                        obj.insert("end".to_string(), v);
+                    }
+                }
+            }
+        }
+    }
+    if arr.is_empty() {
+        fallback
+    } else {
+        serde_json::to_string(&arr).unwrap_or(fallback)
+    }
+}
+
+// Advance a note's recurrence once: due_date + appointment dates move forward
+// and the note returns to the backlog.
+fn apply_recurrence(
+    rule: &str,
+    due_date: Option<String>,
+    appointments: Option<String>,
+) -> (Option<String>, Option<String>) {
+    let new_due = match due_date {
+        Some(ref d) if !d.trim().is_empty() => advance_repeat_date(d, rule).or(due_date),
+        _ => advance_repeat_date(
+            &chrono::Local::now().format("%Y-%m-%d").to_string(),
+            rule,
+        ),
+    };
+    let new_appts = appointments.map(|a| advance_appointments(&a, rule));
+    (new_due, new_appts)
+}
+
 async fn backup_db(pool: &SqlitePool, prefix: &str) {
     let _ = std::fs::create_dir_all("backups");
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
@@ -230,6 +305,11 @@ async fn main() {
         .execute(&pool)
         .await;
 
+    // Migration: add repeat_rule column (daily/weekly/monthly recurrence)
+    let _ = sqlx::query("ALTER TABLE notes ADD COLUMN repeat_rule TEXT")
+        .execute(&pool)
+        .await;
+
     // Data database (contacts.db): separate SQLite DB for contacts & future data-view types
     let db = SqlitePool::connect("sqlite://contacts.db?mode=rwc")
         .await
@@ -315,7 +395,7 @@ async fn index_handler() -> Html<String> {
 }
 
 async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, id ASC")
+    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, id ASC")
         .fetch_all(&state.pool)
         .await
     {
@@ -416,6 +496,13 @@ async fn create_note(
     let department = resolve_department(&state.pool, payload.department).await;
     let departments = payload.departments;
     let appointments = payload.appointments;
+    let repeat_rule = payload
+        .repeat_rule
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .flatten();
 
     // sort_order: maximum value in the column + 1
     let max_sort: Result<Option<i64>, _> =
@@ -427,8 +514,8 @@ async fn create_note(
 
     let result = sqlx::query(
         r#"
-        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(payload.title)
@@ -441,6 +528,7 @@ async fn create_note(
     .bind(departments)
     .bind(appointments)
     .bind(sort_order)
+    .bind(repeat_rule)
     .execute(&state.pool)
     .await;
 
@@ -476,6 +564,7 @@ async fn update_note(
     };
 
     let was_active = existing.status != "done" && existing.status != "archived";
+    let was_done = existing.status == "done";
     let title = payload.title.unwrap_or(existing.title);
     let content = payload.content.unwrap_or(existing.content);
     let status = payload.status.unwrap_or(existing.status);
@@ -488,10 +577,38 @@ async fn update_note(
     let departments = payload.departments.or(existing.departments);
     let appointments = payload.appointments.or(existing.appointments);
     let sort_order = payload.sort_order.unwrap_or(existing.sort_order);
+    let repeat_rule = payload
+        .repeat_rule
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .flatten()
+        .or(existing.repeat_rule);
 
-    let is_active = status != "done" && status != "archived";
+    // Recurring notes: completing one occurrence advances due_date + appointment
+    // dates to the next occurrence and the note returns to the backlog.
+    let (final_status, final_due_date, final_appointments, recurring) =
+        if status == "done" && !was_done {
+            if let Some(rule) = repeat_rule.as_deref() {
+                let (nd, na) = apply_recurrence(rule, due_date.clone(), appointments.clone());
+                if nd != due_date || na != appointments {
+                    ("backlog".to_string(), nd, na, true)
+                } else {
+                    (status.clone(), due_date, appointments.clone(), false)
+                }
+            } else {
+                (status.clone(), due_date, appointments.clone(), false)
+            }
+        } else {
+            (status.clone(), due_date, appointments.clone(), false)
+        };
+
+    let is_active = final_status != "done" && final_status != "archived";
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let completed_at = if !was_active && !is_active {
+    let completed_at = if recurring {
+        None
+    } else if !was_active && !is_active {
         existing.completed_at.clone()
     } else if is_active {
         None
@@ -501,19 +618,20 @@ async fn update_note(
 
     let result = sqlx::query(
         r#"
-        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, department = ?, departments = ?, appointments = ?, sort_order = ?, completed_at = ? WHERE id = ?
+        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, department = ?, departments = ?, appointments = ?, sort_order = ?, completed_at = ?, repeat_rule = ? WHERE id = ?
         "#,
     )
     .bind(title)
     .bind(content)
-    .bind(status)
+    .bind(final_status)
     .bind(priority)
-    .bind(due_date)
+    .bind(final_due_date)
     .bind(department)
     .bind(departments)
-    .bind(appointments)
+    .bind(final_appointments)
     .bind(sort_order)
     .bind(completed_at)
+    .bind(repeat_rule)
     .bind(id)
     .execute(&state.pool)
     .await;
@@ -564,7 +682,7 @@ async fn force_delete_note(
 
 async fn get_trash(State(state): State<AppState>) -> impl IntoResponse {
     let notes = sqlx::query_as::<_, Note>(
-        "SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
+        "SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
     )
     .fetch_all(&state.pool)
     .await;
@@ -650,6 +768,14 @@ async fn import_data(
             .flatten();
         let departments = n.departments.clone().filter(|s| !s.trim().is_empty());
         let appointments = n.appointments.clone().filter(|s| !s.trim().is_empty());
+        let repeat_rule = n
+            .repeat_rule
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
 
         let max_sort: Option<i64> = sqlx::query_scalar(
             "SELECT MAX(sort_order) FROM notes WHERE status = ? AND deleted_at IS NULL",
@@ -663,8 +789,8 @@ async fn import_data(
 
         let res = sqlx::query(
             r#"
-            INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&title)
@@ -677,6 +803,7 @@ async fn import_data(
         .bind(departments)
         .bind(appointments)
         .bind(sort_order)
+        .bind(repeat_rule)
         .execute(&state.pool)
         .await;
         if res.is_ok() {
@@ -792,8 +919,8 @@ async fn duplicate_note(
 
     let result = sqlx::query(
         r#"
-        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(new_title)
@@ -806,6 +933,7 @@ async fn duplicate_note(
     .bind(existing.departments)
     .bind(existing.appointments)
     .bind(sort_order)
+    .bind(existing.repeat_rule)
     .execute(&state.pool)
     .await;
 
@@ -1496,6 +1624,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     ✓ {{ getChecklistProgress(note).done }}/{{ getChecklistProgress(note).total }}
                                 </span>
                                 <span v-if="getAppointments(note).length > 0" class="text-[9px] text-violet-600 dark:text-violet-400/90 font-mono">Termine: {{ getAppointments(note).length }}</span>
+                                <span v-if="note.repeat_rule" class="text-[9px] text-sky-600 dark:text-sky-400/90 font-mono" :title="'Wiederholt ' + ({daily: 'täglich', weekly: 'wöchentlich', monthly: 'monatlich'}[note.repeat_rule] || note.repeat_rule)">↻ {{ {daily: 'täglich', weekly: 'wöchentlich', monthly: 'monatlich'}[note.repeat_rule] || note.repeat_rule }}</span>
                                 <div v-if="getDepartments(note).length > 0" class="flex flex-wrap gap-1">
                                     <span 
                                         v-for="(dept, di) in getDepartments(note)" 
@@ -2033,6 +2162,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                             >
                         </label>
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                            Wiederholung
+                            <select v-model="newNoteRepeatRule" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                                <option value="">Keine</option>
+                                <option value="daily">Täglich</option>
+                                <option value="weekly">Wöchentlich</option>
+                                <option value="monthly">Monatlich</option>
+                            </select>
+                        </label>
                         <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
                             Department
                             <div class="relative">
@@ -2218,6 +2356,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
                             Fällig:
                             <input type="date" v-model="activeNote.due_date" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
+                        </label>
+                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
+                            Wiederholung:
+                            <select v-model="activeNote.repeat_rule" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
+                                <option value="">Keine</option>
+                                <option value="daily">Täglich</option>
+                                <option value="weekly">Wöchentlich</option>
+                                <option value="monthly">Monatlich</option>
+                            </select>
                         </label>
                         <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400 relative">
                             Department:
@@ -2447,6 +2594,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const newNoteTitle = ref('')
                 const newNotePriority = ref('medium')
                 const newNoteDueDate = ref('')
+                const newNoteRepeatRule = ref('')
                 const newNoteStatus = ref('backlog')
                 const newNoteContent = ref('')
                 const newNoteChecklist = ref([])
@@ -3025,6 +3173,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     newNoteTitle.value = ''
                     newNotePriority.value = 'medium'
                     newNoteDueDate.value = ''
+                    newNoteRepeatRule.value = ''
                     newNoteStatus.value = 'backlog'
                     newNoteContent.value = ''
                     newNoteChecklist.value = []
@@ -3111,7 +3260,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 priority: newNotePriority.value,
                                 due_date: newNoteDueDate.value || null,
                                 departments: JSON.stringify(newNoteDepartments.value),
-                                appointments: JSON.stringify(newNoteAppointments.value)
+                                appointments: JSON.stringify(newNoteAppointments.value),
+                                repeat_rule: newNoteRepeatRule.value || null
                             })
                         })
                         if (res.ok) {
@@ -3861,7 +4011,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 priority: activeNote.value.priority,
                                 due_date: activeNote.value.due_date || null,
                                 departments: JSON.stringify(activeNoteDepartments.value),
-                                appointments: JSON.stringify(activeNoteAppointments.value)
+                                appointments: JSON.stringify(activeNoteAppointments.value),
+                                repeat_rule: activeNote.value.repeat_rule || null
                             })
                         })
                         if (res.ok) {
@@ -4456,6 +4607,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     newNoteTitle,
                     newNotePriority,
                     newNoteDueDate,
+                    newNoteRepeatRule,
                     newNoteStatus,
                     newNoteContent,
                     newNoteChecklist,
