@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -89,9 +89,65 @@ struct UpdateNote {
     sort_order: Option<i64>,
 }
 
+#[derive(Deserialize, Clone)]
+struct ImportNote {
+    title: String,
+    content: Option<String>,
+    status: Option<String>,
+    priority: Option<String>,
+    date: Option<String>,
+    due_date: Option<String>,
+    department: Option<String>,
+    departments: Option<String>,
+    appointments: Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+struct ImportContact {
+    name: String,
+    department: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ImportPayload {
+    mode: Option<String>,
+    notes: Option<Vec<ImportNote>>,
+    contacts: Option<Vec<ImportContact>>,
+}
+
 #[derive(Deserialize)]
 struct SearchQuery {
     q: Option<String>,
+}
+
+// Create a consistent snapshot of a database into backups/ using VACUUM INTO,
+// keeping a rolling window of 10 snapshots per database.
+async fn backup_db(pool: &SqlitePool, prefix: &str) {
+    let _ = std::fs::create_dir_all("backups");
+    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let path = format!("backups/{}_{}.db", prefix, ts);
+    let _ = sqlx::query(&format!("VACUUM INTO '{}'", path))
+        .execute(pool)
+        .await;
+
+    if let Ok(entries) = std::fs::read_dir("backups") {
+        let mut files: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(&format!("{}_", prefix)) && n.ends_with(".db"))
+            .collect();
+        files.sort();
+        while files.len() > 10 {
+            if let Some(oldest) = files.first() {
+                let _ = std::fs::remove_file(format!("backups/{}", oldest));
+            }
+            files.remove(0);
+        }
+    }
 }
 
 #[tokio::main]
@@ -169,6 +225,11 @@ async fn main() {
         .execute(&pool)
         .await;
 
+    // Migration: add deleted_at column (soft-delete / Papierkorb)
+    let _ = sqlx::query("ALTER TABLE notes ADD COLUMN deleted_at TEXT")
+        .execute(&pool)
+        .await;
+
     // Data database (contacts.db): separate SQLite DB for contacts & future data-view types
     let db = SqlitePool::connect("sqlite://contacts.db?mode=rwc")
         .await
@@ -190,6 +251,11 @@ async fn main() {
     .await
     .expect("Fehler beim Erstellen der Kontakte-Tabelle");
 
+    // Migration: add deleted_at column (soft-delete / Papierkorb)
+    let _ = sqlx::query("ALTER TABLE contacts ADD COLUMN deleted_at TEXT")
+        .execute(&db)
+        .await;
+
     // Seed sample contacts on first run (empty table)
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contacts")
         .fetch_one(&db)
@@ -207,6 +273,10 @@ async fn main() {
         .await;
     }
 
+    // Snapshot both databases on every startup (rolling 10 per DB)
+    backup_db(&pool, "notice").await;
+    backup_db(&db, "contacts").await;
+
     let state = AppState { pool, db };
 
     let app = Router::new()
@@ -217,9 +287,16 @@ async fn main() {
         .route("/api/departments/delete", post(delete_department))
         .route("/api/notes/:id", post(update_note).put(update_note).delete(delete_note))
         .route("/api/notes/:id/duplicate", post(duplicate_note))
+        .route("/api/notes/:id/restore", post(restore_note))
+        .route("/api/notes/:id/force", delete(force_delete_note))
+        .route("/api/import", post(import_data))
+        .route("/api/trash", get(get_trash))
+        .route("/api/trash/clear", post(clear_trash))
         .route("/api/contacts", get(get_contacts).post(create_contact))
         .route("/api/contacts/search", get(search_contacts))
         .route("/api/contacts/:id", put(update_contact).delete(delete_contact))
+        .route("/api/contacts/:id/restore", post(restore_contact))
+        .route("/api/contacts/:id/force", delete(force_delete_contact))
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 8080));
@@ -238,7 +315,7 @@ async fn index_handler() -> Html<String> {
 }
 
 async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at FROM notes ORDER BY sort_order ASC, id ASC")
+    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, id ASC")
         .fetch_all(&state.pool)
         .await
     {
@@ -254,6 +331,7 @@ async fn get_departments(State(state): State<AppState>) -> impl IntoResponse {
         FROM notes,
              json_each(COALESCE(notes.departments, '[]')) AS dep
         WHERE json_type(COALESCE(notes.departments, '[]')) IS NOT NULL
+          AND notes.deleted_at IS NULL
         GROUP BY LOWER(dep.value)
         ORDER BY cnt DESC, LOWER(dep.value) ASC
         "#,
@@ -288,7 +366,7 @@ async fn resolve_department(
     let existing: Option<String> = sqlx::query_scalar(
         r#"
         SELECT dep.value FROM notes, json_each(COALESCE(notes.departments, '[]')) AS dep
-        WHERE LOWER(dep.value) = LOWER(?) AND dep.value != ''
+        WHERE LOWER(dep.value) = LOWER(?) AND dep.value != '' AND notes.deleted_at IS NULL
         LIMIT 1
         "#,
     )
@@ -309,7 +387,7 @@ async fn search_notes(
     }
     let pattern = format!("%{}%", q);
     match sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, title FROM notes WHERE LOWER(title) LIKE ? ORDER BY sort_order ASC LIMIT 8",
+        "SELECT id, title FROM notes WHERE LOWER(title) LIKE ? AND deleted_at IS NULL ORDER BY sort_order ASC LIMIT 8",
     )
     .bind(pattern)
     .fetch_all(&state.pool)
@@ -341,7 +419,7 @@ async fn create_note(
 
     // sort_order: maximum value in the column + 1
     let max_sort: Result<Option<i64>, _> =
-        sqlx::query_scalar("SELECT MAX(sort_order) FROM notes WHERE status = ?")
+        sqlx::query_scalar("SELECT MAX(sort_order) FROM notes WHERE status = ? AND deleted_at IS NULL")
             .bind(&status)
             .fetch_one(&state.pool)
             .await;
@@ -447,7 +525,9 @@ async fn update_note(
 }
 
 async fn delete_note(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query("DELETE FROM notes WHERE id = ?")
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    match sqlx::query("UPDATE notes SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+        .bind(now)
         .bind(id)
         .execute(&state.pool)
         .await
@@ -455,6 +535,235 @@ async fn delete_note(Path(id): Path<i64>, State(state): State<AppState>) -> impl
         Ok(_) => StatusCode::OK.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+async fn restore_note(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
+    match sqlx::query("UPDATE notes SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+    {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn force_delete_note(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM notes WHERE id = ? AND deleted_at IS NOT NULL")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+    {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn get_trash(State(state): State<AppState>) -> impl IntoResponse {
+    let notes = sqlx::query_as::<_, Note>(
+        "SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
+    )
+    .fetch_all(&state.pool)
+    .await;
+    let contacts = sqlx::query_as::<_, Contact>(
+        "SELECT id, name, department, phone, email, description FROM contacts WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
+    )
+    .fetch_all(&state.db)
+    .await;
+    match (notes, contacts) {
+        (Ok(n), Ok(c)) => {
+            Json(serde_json::json!({ "notes": n, "contacts": c })).into_response()
+        }
+        _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn clear_trash(State(state): State<AppState>) -> impl IntoResponse {
+    let notes_res = sqlx::query("DELETE FROM notes WHERE deleted_at IS NOT NULL")
+        .execute(&state.pool)
+        .await;
+    let contacts_res = sqlx::query("DELETE FROM contacts WHERE deleted_at IS NOT NULL")
+        .execute(&state.db)
+        .await;
+    if notes_res.is_ok() && contacts_res.is_ok() {
+        StatusCode::OK.into_response()
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    }
+}
+
+async fn import_data(
+    State(state): State<AppState>,
+    Json(payload): Json<ImportPayload>,
+) -> impl IntoResponse {
+    let mode = payload.mode.as_deref().unwrap_or("merge");
+    let pnotes = payload.notes.unwrap_or_default();
+    let pcontacts = payload.contacts.unwrap_or_default();
+    let mut notes_skipped = 0usize;
+    let mut contacts_skipped = 0usize;
+
+    if mode == "replace" {
+        let _ = sqlx::query("DELETE FROM notes").execute(&state.pool).await;
+        let _ = sqlx::query("DELETE FROM contacts").execute(&state.db).await;
+    }
+
+    let mut notes_imported = 0usize;
+    for n in &pnotes {
+        let title = n.title.trim().to_string();
+        if title.is_empty() {
+            notes_skipped += 1;
+            continue;
+        }
+        if mode == "merge" {
+            let existing: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM notes WHERE LOWER(title) = LOWER(?) AND deleted_at IS NULL LIMIT 1",
+            )
+            .bind(&title)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+            if existing.is_some() {
+                notes_skipped += 1;
+                continue;
+            }
+        }
+        let content = n.content.clone().unwrap_or_default();
+        let status = n.status.clone().unwrap_or_else(|| "backlog".to_string());
+        let priority = n.priority.clone().unwrap_or_else(|| "medium".to_string());
+        let date = n
+            .date
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| chrono::Local::now().format("%d.%m.%Y").to_string());
+        let due_date = n.due_date.clone().filter(|s| !s.trim().is_empty());
+        let department = n
+            .department
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
+        let departments = n.departments.clone().filter(|s| !s.trim().is_empty());
+        let appointments = n.appointments.clone().filter(|s| !s.trim().is_empty());
+
+        let max_sort: Option<i64> = sqlx::query_scalar(
+            "SELECT MAX(sort_order) FROM notes WHERE status = ? AND deleted_at IS NULL",
+        )
+        .bind(&status)
+        .fetch_one(&state.pool)
+        .await
+        .ok()
+        .flatten();
+        let sort_order = max_sort.unwrap_or(0) + 1;
+
+        let res = sqlx::query(
+            r#"
+            INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&title)
+        .bind(content)
+        .bind(status)
+        .bind(priority)
+        .bind(date)
+        .bind(due_date)
+        .bind(department)
+        .bind(departments)
+        .bind(appointments)
+        .bind(sort_order)
+        .execute(&state.pool)
+        .await;
+        if res.is_ok() {
+            notes_imported += 1;
+        } else {
+            notes_skipped += 1;
+        }
+    }
+
+    let mut contacts_imported = 0usize;
+    for c in &pcontacts {
+        let name = c.name.trim().to_string();
+        if name.is_empty() {
+            contacts_skipped += 1;
+            continue;
+        }
+        if mode == "merge" {
+            let existing: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM contacts WHERE LOWER(name) = LOWER(?) AND deleted_at IS NULL LIMIT 1",
+            )
+            .bind(&name)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+            if existing.is_some() {
+                contacts_skipped += 1;
+                continue;
+            }
+        }
+        let department = c
+            .department
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
+        let phone = c
+            .phone
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
+        let email = c
+            .email
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
+        let description = c
+            .description
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
+
+        let res = sqlx::query(
+            "INSERT INTO contacts (name, department, phone, email, description) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&name)
+        .bind(department)
+        .bind(phone)
+        .bind(email)
+        .bind(description)
+        .execute(&state.db)
+        .await;
+        if res.is_ok() {
+            contacts_imported += 1;
+        } else {
+            contacts_skipped += 1;
+        }
+    }
+
+    Json(serde_json::json!({
+        "notes_imported": notes_imported,
+        "notes_skipped": notes_skipped,
+        "contacts_imported": contacts_imported,
+        "contacts_skipped": contacts_skipped
+    }))
+    .into_response()
 }
 
 async fn duplicate_note(
@@ -475,7 +784,7 @@ async fn duplicate_note(
     let date = chrono::Local::now().format("%d.%m.%Y").to_string();
 
     let max_sort: Result<Option<i64>, _> =
-        sqlx::query_scalar("SELECT MAX(sort_order) FROM notes WHERE status = ?")
+        sqlx::query_scalar("SELECT MAX(sort_order) FROM notes WHERE status = ? AND deleted_at IS NULL")
             .bind(&existing.status)
             .fetch_one(&state.pool)
             .await;
@@ -518,7 +827,7 @@ async fn duplicate_note(
 
 async fn get_contacts(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, Contact>(
-        "SELECT id, name, department, phone, email, description FROM contacts ORDER BY LOWER(name) ASC, id ASC",
+        "SELECT id, name, department, phone, email, description FROM contacts WHERE deleted_at IS NULL ORDER BY LOWER(name) ASC, id ASC",
     )
     .fetch_all(&state.db)
     .await
@@ -664,7 +973,37 @@ async fn update_contact(
 }
 
 async fn delete_contact(Path(id): Path<i64>, State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query("DELETE FROM contacts WHERE id = ?")
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    match sqlx::query("UPDATE contacts SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL")
+        .bind(now)
+        .bind(id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn restore_contact(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match sqlx::query("UPDATE contacts SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL")
+        .bind(id)
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn force_delete_contact(
+    Path(id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM contacts WHERE id = ? AND deleted_at IS NOT NULL")
         .bind(id)
         .execute(&state.db)
         .await
@@ -684,7 +1023,7 @@ async fn search_contacts(
     }
     let pattern = format!("%{}%", q);
     match sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, name FROM contacts WHERE LOWER(name) LIKE ? ORDER BY LOWER(name) ASC LIMIT 8",
+        "SELECT id, name FROM contacts WHERE LOWER(name) LIKE ? AND deleted_at IS NULL ORDER BY LOWER(name) ASC LIMIT 8",
     )
     .bind(pattern)
     .fetch_all(&state.db)
@@ -748,6 +1087,7 @@ async fn delete_department(
         FROM notes,
              json_each(COALESCE(notes.departments, '[]')) AS dep
         WHERE json_type(COALESCE(notes.departments, '[]')) IS NOT NULL
+          AND notes.deleted_at IS NULL
         GROUP BY LOWER(dep.value)
         ORDER BY cnt DESC, LOWER(dep.value) ASC
         "#,
@@ -1001,14 +1341,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 <div class="relative shrink-0">
                     <button 
                         @click.stop="exportMenuOpen = !exportMenuOpen" 
-                        :disabled="notes.length === 0"
-                        :class="notes.length === 0 ? 'opacity-40 cursor-not-allowed bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600' : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 cursor-pointer'"
+                        :disabled="notes.length === 0 && contacts.length === 0"
+                        :class="notes.length === 0 && contacts.length === 0 ? 'opacity-40 cursor-not-allowed bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600' : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 cursor-pointer'"
                         class="px-2.5 py-1 text-xs border">
-                        Export ▾
+                        Daten ▾
                     </button>
                     <div 
                         v-if="exportMenuOpen"
-                        class="absolute right-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 min-w-[140px]"
+                        class="absolute right-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 min-w-[180px]"
                     >
                         <button 
                             @click="exportJson(); exportMenuOpen = false" 
@@ -1020,7 +1360,25 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
                             Als CSV
                         </button>
+                        <div class="border-t border-zinc-200 dark:border-zinc-700 my-1"></div>
+                        <button 
+                            @click="exportFullBackup(); exportMenuOpen = false" 
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                            Backup (alles)
+                        </button>
+                        <div class="border-t border-zinc-200 dark:border-zinc-700 my-1"></div>
+                        <button 
+                            @click="startImport('merge'); exportMenuOpen = false" 
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                            Import (zusammenführen)
+                        </button>
+                        <button 
+                            @click="startImport('replace'); exportMenuOpen = false" 
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                            Import (ersetzen)
+                        </button>
                     </div>
+                    <input ref="importFileInputRef" type="file" accept=".json,application/json" class="hidden" @change="onImportFile">
                 </div>
             </div>
         </header>
@@ -1494,6 +1852,42 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                         <span v-if="c.phone" class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ c.phone }}</span>
                                     </div>
                                     <button @click.stop="deleteContact(c)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-1">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase">Papierkorb</span>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ trashNotes.length + trashContacts.length }} {{ trashNotes.length + trashContacts.length === 1 ? 'Element' : 'Elemente' }}</span>
+                                    <button
+                                        v-if="trashNotes.length + trashContacts.length > 0"
+                                        @click="clearTrash"
+                                        class="text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono cursor-pointer">[Leeren]</button>
+                                </div>
+                            </div>
+                            <div v-if="trashNotes.length === 0 && trashContacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">Papierkorb ist leer.</div>
+                            <div class="space-y-1 mt-1.5">
+                                <div v-for="n in trashNotes" :key="'n' + n.id" class="flex items-center justify-between gap-2 px-2 py-1.5 border border-zinc-200 dark:border-zinc-800">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono shrink-0">Note</span>
+                                        <span class="text-[11px] text-zinc-800 dark:text-zinc-200 truncate">{{ n.title }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <button @click="restoreNote(n.id)" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-600 text-zinc-600 dark:text-zinc-400 hover:text-white text-[10px] px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 cursor-pointer">Wiederherstellen</button>
+                                        <button @click="forceDeleteNote(n.id)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0" title="Endgültig löschen">[X]</button>
+                                    </div>
+                                </div>
+                                <div v-for="c in trashContacts" :key="'c' + c.id" class="flex items-center justify-between gap-2 px-2 py-1.5 border border-zinc-200 dark:border-zinc-800">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono shrink-0">Kontakt</span>
+                                        <span class="text-[11px] text-zinc-800 dark:text-zinc-200 truncate">{{ c.name }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <button @click="restoreContact(c.id)" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-600 text-zinc-600 dark:text-zinc-400 hover:text-white text-[10px] px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 cursor-pointer">Wiederherstellen</button>
+                                        <button @click="forceDeleteContact(c.id)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0" title="Endgültig löschen">[X]</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -2116,6 +2510,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 let autocompleteTimer = null
                 const autocompleteContainerRef = ref(null)
                 const exportMenuOpen = ref(false)
+                const importFileInputRef = ref(null)
+                const importMode = ref('merge')
+                const trashNotes = ref([])
+                const trashContacts = ref([])
 
                 // Theme (dark/light) toggle
                 const isDark = ref(localStorage.getItem('notice-theme') !== 'light')
@@ -2289,6 +2687,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         if (res.ok) {
                             if (highlightContactId.value === contact.id) highlightContactId.value = null
                             await fetchContacts()
+                            await fetchTrash()
                         }
                     } catch (e) {
                         console.error('Fehler beim Löschen des Kontakts', e)
@@ -2589,6 +2988,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     fetchNotes()
                     fetchDepartments()
                     fetchContacts()
+                    fetchTrash()
                     window.addEventListener('keydown', handleGlobalKeydown, { capture: true })
                 })
 
@@ -2752,6 +3152,119 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     document.body.appendChild(downloadAnchor);
                     downloadAnchor.click();
                     downloadAnchor.remove();
+                }
+
+                const exportFullBackup = () => {
+                    const data = {
+                        app: 'notice',
+                        version: '1.5',
+                        exported: new Date().toISOString(),
+                        notes: notes.value,
+                        contacts: contacts.value
+                    }
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2))
+                    const downloadAnchor = document.createElement('a')
+                    downloadAnchor.setAttribute("href", dataStr)
+                    downloadAnchor.setAttribute("download", `notice_backup_${new Date().toISOString().slice(0, 10)}.json`)
+                    document.body.appendChild(downloadAnchor)
+                    downloadAnchor.click()
+                    downloadAnchor.remove()
+                }
+
+                const startImport = (mode) => {
+                    if (mode === 'replace' && !confirm('Beim Ersetzen werden ALLE bestehenden Notizen und Kontakte gelöscht und durch die Import-Datei ersetzt. Fortfahren?')) return
+                    importMode.value = mode
+                    if (importFileInputRef.value) importFileInputRef.value.click()
+                }
+
+                const onImportFile = async (e) => {
+                    const file = e.target.files && e.target.files[0]
+                    e.target.value = ''
+                    if (!file) return
+                    let data
+                    try {
+                        data = JSON.parse(await file.text())
+                    } catch {
+                        alert('Die Datei ist kein gültiges JSON.')
+                        return
+                    }
+                    if (!data || typeof data !== 'object') {
+                        alert('Ungültiges JSON.')
+                        return
+                    }
+                    const pnotes = Array.isArray(data) ? data : (Array.isArray(data.notes) ? data.notes : null)
+                    const pcontacts = (!Array.isArray(data) && Array.isArray(data.contacts)) ? data.contacts : []
+                    if (!pnotes) {
+                        alert('Keine Notizen in der Datei gefunden.')
+                        return
+                    }
+                    try {
+                        const res = await fetch('/api/import', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ mode: importMode.value, notes: pnotes, contacts: pcontacts })
+                        })
+                        if (res.ok) {
+                            const r = await res.json()
+                            alert(`Import abgeschlossen:\n${r.notes_imported} Notizen importiert, ${r.notes_skipped} übersprungen.\n${r.contacts_imported} Kontakte importiert, ${r.contacts_skipped} übersprungen.`)
+                            await fetchNotes()
+                            await fetchContacts()
+                            await fetchDepartments()
+                            await fetchTrash()
+                        } else {
+                            alert('Import fehlgeschlagen.')
+                        }
+                    } catch (err) {
+                        alert('Import fehlgeschlagen.')
+                    }
+                }
+
+                // --- Papierkorb (soft-deleted notes & contacts) ---
+                const fetchTrash = async () => {
+                    try {
+                        const res = await fetch('/api/trash')
+                        if (res.ok) {
+                            const data = await res.json()
+                            trashNotes.value = data.notes || []
+                            trashContacts.value = data.contacts || []
+                        }
+                    } catch (e) {
+                        console.error('Fehler beim Laden des Papierkorbs', e)
+                    }
+                }
+
+                const restoreNote = async (id) => {
+                    const res = await fetch(`/api/notes/${id}/restore`, { method: 'POST' })
+                    if (res.ok) {
+                        await fetchTrash()
+                        await fetchNotes()
+                    }
+                }
+
+                const restoreContact = async (id) => {
+                    const res = await fetch(`/api/contacts/${id}/restore`, { method: 'POST' })
+                    if (res.ok) {
+                        await fetchTrash()
+                        await fetchContacts()
+                    }
+                }
+
+                const forceDeleteNote = async (id) => {
+                    if (!confirm('Notiz endgültig löschen? Dies kann nicht rückgängig gemacht werden.')) return
+                    const res = await fetch(`/api/notes/${id}/force`, { method: 'DELETE' })
+                    if (res.ok) await fetchTrash()
+                }
+
+                const forceDeleteContact = async (id) => {
+                    if (!confirm('Kontakt endgültig löschen? Dies kann nicht rückgängig gemacht werden.')) return
+                    const res = await fetch(`/api/contacts/${id}/force`, { method: 'DELETE' })
+                    if (res.ok) await fetchTrash()
+                }
+
+                const clearTrash = async () => {
+                    if (!confirm('Papierkorb wirklich leeren? Alle Elemente werden endgültig gelöscht.')) return
+                    const res = await fetch('/api/trash/clear', { method: 'POST' })
+                    if (res.ok) await fetchTrash()
                 }
 
                 const openModal = (note) => {
@@ -3369,6 +3882,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         const res = await fetch(`/api/notes/${id}`, { method: 'DELETE' })
                         if (res.ok) {
                             notes.value = notes.value.filter(note => note.id !== id)
+                            fetchTrash()
                         }
                     } catch (e) {
                         console.error('Fehler beim Löschen', e)
@@ -4019,6 +4533,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     cancelAutocomplete,
                     exportJson,
                     exportCsv,
+                    exportFullBackup,
+                    startImport,
+                    onImportFile,
+                    importFileInputRef,
+                    trashNotes,
+                    trashContacts,
+                    fetchTrash,
+                    restoreNote,
+                    restoreContact,
+                    forceDeleteNote,
+                    forceDeleteContact,
+                    clearTrash,
                     openModal,
                     closeModal,
                     addStep,
