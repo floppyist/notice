@@ -794,29 +794,45 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             darkMode: 'class',
             theme: {
                 extend: {
-                    borderRadius: { none: '0px', DEFAULT: '0px', sm: '0px', md: '0px', lg: '0px', xl: '0px', '2xl': '0px', '3xl': '0px', full: '0px' }
+                    borderRadius: { none: '0px', DEFAULT: '0px', sm: '0px', md: '0px', lg: '0px', xl: '0px', '2xl': '0px', '3xl': '0px', full: '0px' },
+                    colors: {
+                        zinc: {
+                            50: '#dcdce0',
+                            100: '#d0d0d5',
+                            200: '#bfc0c6',
+                            300: '#adaeb5',
+                            400: '#8b8b93',
+                            500: '#63646b',
+                            600: '#45464d',
+                            700: '#34353b',
+                            800: '#27272a',
+                            900: '#18181b',
+                            950: '#09090b'
+                        }
+                    }
                 }
             }
         }
     </script>
     <style>
         :root {
-            --bg-page: #f4f4f5;
-            --bg-panel: #ffffff;
+            --bg-page: #d0d0d5;
+            --bg-panel: #dcdce0;
             --bg-card: #18181b;
-            --border: #e4e4e7;
-            --border-hover: #a1a1aa;
-            --text: #18181b;
-            --text-muted: #52525b;
-            --text-faint: #71717a;
-            --code-bg: #f4f4f5;
-            --green: #059669;
-            --green-bright: #34d399;
-            --green-hover: #059669;
-            --blue: #2563eb;
-            --blue-bright: #93c5fd;
-            --red-bright: #ef4444;
-            --apt-bg: #f4f4f5;
+            --border: #bfc0c6;
+            --border-hover: #71727a;
+            --text: #17171a;
+            --text-muted: #36373d;
+            --text-faint: #4e4f56;
+            --code-bg: #dcdce0;
+            --green: #047857;
+            --green-bright: #047857;
+            --green-hover: #065f46;
+            --blue: #1e40af;
+            --blue-bright: #1e40af;
+            --red-bright: #b91c1c;
+            --violet-bright: #6d28d9;
+            --apt-bg: #dcdce0;
         }
         html.dark {
             --bg-page: #0d0d0f;
@@ -834,6 +850,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             --blue: #60a5fa;
             --blue-bright: #93c5fd;
             --red-bright: #fca5a5;
+            --violet-bright: #a78bfa;
             --apt-bg: #18181b;
         }
         html, body {
@@ -979,7 +996,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 <button 
                     @click="openNewNote" 
                     class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors shrink-0">
-                    + HINZUFÜGEN
+                    + NEU
                 </button>
                 <div class="relative shrink-0">
                     <button 
@@ -1280,9 +1297,6 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 <div class="flex-1 flex flex-col overflow-hidden">
                     <div class="flex items-center justify-between mb-1.5 shrink-0">
                         <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Übersicht</span>
-                        <button @click="openNewNote" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors">
-                            + HINZUFÜGEN
-                        </button>
                     </div>
                     <div class="flex-1 overflow-y-auto space-y-3 min-h-0">
                         <!-- Today's tasks -->
@@ -1341,7 +1355,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Status</span>
                                 <div class="space-y-1.5 mt-2">
                                     <div v-for="row in dashboardStatusRows" :key="row.id" class="flex items-center gap-2">
-                                        <span class="w-16 shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400">{{ row.title.replace(/^\d+_/, '') }}</span>
+                                        <span class="w-24 shrink-0 text-[10px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap truncate" :title="row.title.replace(/^\d+_/, '')">{{ row.title.replace(/^\d+_/, '') }}</span>
                                         <div class="flex-1 h-3 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 overflow-hidden">
                                             <div class="h-full" :style="{ width: row.pct + '%' }" :class="row.color"></div>
                                         </div>
@@ -1429,7 +1443,6 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     <th class="py-1.5 px-2 font-bold">Einrichtung</th>
                                     <th class="py-1.5 px-2 font-bold">Telefon</th>
                                     <th class="py-1.5 px-2 font-bold">E-Mail</th>
-                                    <th class="py-1.5 px-2 font-bold"></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1444,10 +1457,6 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     </td>
                                     <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.phone || '–' }}</td>
                                     <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.email || '–' }}</td>
-                                    <td class="py-1.5 px-2 text-right">
-                                        <button @click.stop="deleteContact(c)"
-                                            class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
-                                    </td>
                                 </tr>
                             </tbody>
                         </table>
@@ -1896,7 +1905,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                  v-if="isPreviewMode" 
                                  class="markdown-body w-full flex-1 min-h-0 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 p-2.5 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
                                  v-html="renderedMarkdown"
-                                 @click="handleNoteLinkClick">
+                                 @click="handleNoteLinkClick"
+                                 @mousemove="showContactPopover"
+                                 @mouseleave="hideContactPopover">
                             </div>
 
                         <!-- Autocomplete dropdown for [[ links -->
@@ -1946,6 +1957,24 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             <button @click="applyHtmlColor('#a78bfa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-violet-600 dark:text-violet-400 flex items-center gap-2"><span class="w-2 h-2 bg-violet-400 inline-block"></span> Lila</button>
                             <button @click="applyHtmlColor('#f472b6')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-pink-600 dark:text-pink-400 flex items-center gap-2"><span class="w-2 h-2 bg-pink-400 inline-block"></span> Rosa</button>
                             <button @click="applyHtmlColor('#a1a1aa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 flex items-center gap-2"><span class="w-2 h-2 bg-zinc-400 dark:bg-zinc-500 inline-block"></span> Grau</button>
+                        </div>
+
+                        <!-- Contact hover popover -->
+                        <div 
+                            v-if="contactPopover.show && contactPopover.contact"
+                            :style="{ top: contactPopover.y + 'px', left: contactPopover.x + 'px' }"
+                            class="absolute z-[60] bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1.5 px-2.5 text-[11px] w-56 pointer-events-none"
+                        >
+                            <div class="flex items-center gap-1.5 mb-1">
+                                <span class="font-bold text-zinc-900 dark:text-zinc-100 break-all">{{ contactPopover.contact.name }}</span>
+                                <span v-if="contactPopover.contact.department" class="dept-tag dept-tag-sm">{{ contactPopover.contact.department }}</span>
+                            </div>
+                            <div class="text-[9px] text-zinc-400 dark:text-zinc-600 capitalize mb-1">Kontakt</div>
+                            <div class="space-y-0.5 text-zinc-700 dark:text-zinc-300">
+                                <div v-if="contactPopover.contact.phone" class="flex gap-1"><span class="text-zinc-500 dark:text-zinc-400 shrink-0">Tel:</span><span class="min-w-0">{{ contactPopover.contact.phone }}</span></div>
+                                <div v-if="contactPopover.contact.email" class="flex gap-1"><span class="text-zinc-500 dark:text-zinc-400 shrink-0">E-Mail:</span><span class="min-w-0 break-all">{{ contactPopover.contact.email }}</span></div>
+                                <div v-if="contactPopover.contact.description" class="text-[10px] italic break-all mt-0.5">{{ contactPopover.contact.description }}</div>
+                            </div>
                         </div>
                     </div>
 
@@ -2119,6 +2148,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     y: 0,
                     selectionStart: 0,
                     selectionEnd: 0
+                })
+
+                const contactPopover = ref({
+                    show: false,
+                    x: 0,
+                    y: 0,
+                    contact: null
                 })
 
                 const columns = [
@@ -2528,6 +2564,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         e.stopImmediatePropagation()
                         if (showAutocomplete.value) {
                             cancelAutocomplete()
+                        } else if (contextMenu.value.show) {
+                            closeContextMenu()
+                        } else if (deptDropdownOpen.value) {
+                            closeDeptDropdown()
+                        } else if (contactModalOpen.value) {
+                            contactModalOpen.value = false
+                        } else if (isSettingsOpen.value) {
+                            isSettingsOpen.value = false
+                        } else if (exportMenuOpen.value) {
+                            exportMenuOpen.value = false
+                        } else if (reminderOpen.value) {
+                            reminderOpen.value = false
                         } else if (isModalOpen.value) {
                             closeModal()
                         } else if (isNewNoteOpen.value) {
@@ -3003,10 +3051,37 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     })
                 }
 
+                const hideContactPopover = () => {
+                    contactPopover.value.show = false
+                    contactPopover.value.contact = null
+                }
+
+                const showContactPopover = (e) => {
+                    const link = e.target.closest('.address-link')
+                    if (!link) {
+                        hideContactPopover()
+                        return
+                    }
+                    const name = link.getAttribute('data-address-name')
+                    const contact = contacts.value.find(c => (c.name || '') === name)
+                    const rect = link.getBoundingClientRect()
+                    let cont = link
+                    while (cont && getComputedStyle(cont).position === 'static') cont = cont.parentElement
+                    const contRect = (cont || document.body).getBoundingClientRect()
+                    contactPopover.value = {
+                        show: true,
+                        x: Math.min(rect.right + 6 - contRect.left, 280),
+                        y: rect.bottom + 4 - contRect.top,
+                        contact: contact || { name, department: null, phone: null, email: null, description: null }
+                    }
+                }
+
                 const handleAddressLinkClick = (e) => {
                     const link = e.target.closest('.address-link')
                     if (!link) return
                     e.preventDefault()
+                    hideContactPopover()
+                    if (isModalOpen.value) closeModal()
                     const name = link.getAttribute('data-address-name')
                     const contact = contacts.value.find(c => (c.name || '') === name)
                     if (contact) {
@@ -3997,6 +4072,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     convertDateToISO,
                     processAddressLinks,
                     handleAddressLinkClick,
+                    contactPopover,
+                    showContactPopover,
+                    hideContactPopover,
                     contacts,
                     contactFilter,
                     contactModalOpen,
