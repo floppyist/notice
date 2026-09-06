@@ -1461,6 +1461,41 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     placeholder="Suchen (Strg+K)..." 
                     class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 flex-1 min-w-0"
                 >
+                <div class="relative shrink-0">
+                    <button 
+                        @click.stop="timerOpen = !timerOpen"
+                        :title="timerRunning || timerRemaining > 0 ? 'Countdown läuft – ' + fmtTimer() : 'Countdown-Timer'"
+                        :class="timerRunning ? 'bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 border-emerald-600' : (timerRemaining > 0 ? 'bg-amber-200 dark:bg-amber-900 text-zinc-800 dark:text-amber-100 border-amber-300 dark:border-amber-700' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700')"
+                        class="px-2.5 py-1 text-xs tabular-nums border cursor-pointer transition-colors">
+                        ⏱ {{ fmtTimer() }}
+                    </button>
+                    <div 
+                        v-if="timerOpen"
+                        class="absolute right-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs z-50 min-w-[150px]"
+                    >
+                        <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
+                            <span>Timer</span>
+                            <span class="text-zinc-400 dark:text-zinc-600">⏱ {{ fmtTimer() }}</span>
+                        </div>
+                        <button v-for="m in [5, 10, 15, 25, 30]" :key="m"
+                            @click="timerSet(m)"
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer"
+                            :class="{ 'font-bold': timerTotal === m * 60 }">
+                            {{ m }} Minuten
+                        </button>
+                        <div class="border-t border-zinc-200 dark:border-zinc-700 my-1"></div>
+                        <button 
+                            @click="timerToggle()"
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                            {{ timerRunning ? 'Pause' : 'Start' }}
+                        </button>
+                        <button 
+                            @click="timerReset()"
+                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 cursor-pointer">
+                            Reset
+                        </button>
+                    </div>
+                </div>
                 <button 
                     @click="openNewNote" 
                     class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors shrink-0">
@@ -2446,7 +2481,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                  v-if="isPreviewMode" 
                                  class="markdown-body w-full flex-1 min-h-0 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 p-2.5 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
                                  v-html="renderedMarkdown"
-                                 @click="handleNoteLinkClick"
+                                 @click.prevent="onPreviewClick"
                                  @mousemove="showContactPopover"
                                  @mouseleave="hideContactPopover">
                             </div>
@@ -3138,10 +3173,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     fetchContacts()
                     fetchTrash()
                     window.addEventListener('keydown', handleGlobalKeydown, { capture: true })
+                    startReminderLoop()
                 })
 
                 onUnmounted(() => {
                     window.removeEventListener('keydown', handleGlobalKeydown, { capture: true })
+                    clearInterval(reminderInterval)
+                    clearInterval(timerInterval)
                 })
 
                 const dueStatus = (note) => {
@@ -3840,7 +3878,20 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     return false
                 }
 
-                const collectOverdueReminders = () => {
+                // --- Browser notifications for overdue items ---
+                const notify = (title, body) => {
+                    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                        try { new Notification(title, { body }) } catch (e) {}
+                    }
+                }
+
+                let notifiedKeys = new Set()
+                try {
+                    const saved = JSON.parse(localStorage.getItem('notice-notified') || '[]')
+                    if (Array.isArray(saved)) notifiedKeys = new Set(saved)
+                } catch (e) {}
+
+                const collectOverdueReminders = (opts = {}) => {
                     const list = []
                     notes.value.forEach(note => {
                         if (note.status === 'archived' || note.status === 'done') return
@@ -3871,9 +3922,24 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             })
                         }
                     })
+                    const currentKeys = new Set()
+                    list.forEach(r => {
+                        const key = (r.kind === 'apt' ? 'apt' : 'due') + '_' + r.note.id + '_' + r.apt.start
+                        currentKeys.add(key)
+                        if (!notifiedKeys.has(key) && !opts.skipNotify) {
+                            notifiedKeys.add(key)
+                            notify('Notice: überfällig', `${r.range} – ${r.note.title}`)
+                        }
+                    })
+                    notifiedKeys = new Set([...notifiedKeys].filter(k => currentKeys.has(k)))
+                    try { localStorage.setItem('notice-notified', JSON.stringify([...notifiedKeys])) } catch (e) {}
                     overdueReminders.value = list
                     reminderOpen.value = list.length > 0
                 }
+
+                watch(overdueReminders, (list) => {
+                    document.title = list.length > 0 ? `(${list.length}) Notice – Pro Kanban Notes` : 'Notice – Pro Kanban Notes'
+                })
 
                 const openNoteFromReminder = (ri) => {
                     const r = overdueReminders.value[ri]
@@ -3888,7 +3954,62 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (startupChecksDone) return
                     startupChecksDone = true
                     await autoArchiveDone()
-                    collectOverdueReminders()
+                    collectOverdueReminders({ skipNotify: true })
+                }
+
+                // --- Countdown timer (header) ---
+                const timerOpen = ref(false)
+                const timerTotal = ref(0)
+                const timerRemaining = ref(0)
+                const timerRunning = ref(false)
+                let timerInterval = null
+
+                const fmtTimer = () => {
+                    const s = Math.max(0, Math.round(timerRemaining.value))
+                    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+                }
+
+                const timerSet = (min) => {
+                    timerTotal.value = min * 60
+                    timerRemaining.value = min * 60
+                    timerRunning.value = false
+                    clearInterval(timerInterval)
+                }
+
+                const timerToggle = () => {
+                    if (timerRemaining.value <= 0) {
+                        if (timerTotal.value <= 0) timerTotal.value = 600
+                        timerRemaining.value = timerTotal.value
+                    }
+                    timerRunning.value = !timerRunning.value
+                    clearInterval(timerInterval)
+                    if (timerRunning.value) {
+                        timerInterval = setInterval(() => {
+                            timerRemaining.value -= 1
+                            if (timerRemaining.value <= 0) {
+                                timerRemaining.value = 0
+                                clearInterval(timerInterval)
+                                timerRunning.value = false
+                                timerOpen.value = false
+                                notify('Notice: Timer abgelaufen', 'Der Countdown ist abgelaufen.')
+                            }
+                        }, 1000)
+                    }
+                }
+
+                const timerReset = () => {
+                    timerRunning.value = false
+                    clearInterval(timerInterval)
+                    timerRemaining.value = timerTotal.value
+                }
+
+                // Periodic overdue check (every 5 minutes) + notification permission
+                let reminderInterval = null
+                const startReminderLoop = () => {
+                    reminderInterval = setInterval(() => collectOverdueReminders(), 300000)
+                    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+                        Notification.requestPermission().catch(() => {})
+                    }
                 }
 
                 // --- Drag & drop sorting ---
@@ -3987,9 +4108,30 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 const renderedMarkdown = computed(() => {
                     if (!activeNote.value || !activeNote.value.content) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
-                    const html = marked.parse(activeNote.value.content)
-                    return processAddressLinks(processNoteLinks(html))
+                    let html = marked.parse(activeNote.value.content)
+                    html = processAddressLinks(processNoteLinks(html))
+                    // Make markdown checkboxes in the preview clickable, mapped
+                    // positionally to the checklist entries.
+                    let idx = 0
+                    html = html.replace(/<input[^>]*disabled[^>]*type="checkbox"[^>]*>/g, () => {
+                        const cur = idx++
+                        const done = activeChecklist.value[cur] ? activeChecklist.value[cur].done : false
+                        return `<input type="checkbox" data-cb-i="${cur}"${done ? ' checked' : ''}>`
+                    })
+                    return html
                 })
+
+                const onPreviewClick = (e) => {
+                    const cb = e.target.closest('input[data-cb-i]')
+                    if (cb) {
+                        const i = parseInt(cb.getAttribute('data-cb-i'), 10)
+                        if (activeChecklist.value[i]) {
+                            activeChecklist.value[i].done = !activeChecklist.value[i].done
+                        }
+                        return
+                    }
+                    handleNoteLinkClick(e)
+                }
 
                 const saveActiveNote = async () => {
                     if (!activeNote.value) return
@@ -4604,6 +4746,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     reminderOpen,
                     overdueReminders,
                     openNoteFromReminder,
+                    timerOpen,
+                    timerTotal,
+                    timerRemaining,
+                    timerRunning,
+                    fmtTimer,
+                    timerSet,
+                    timerToggle,
+                    timerReset,
                     newNoteTitle,
                     newNotePriority,
                     newNoteDueDate,
@@ -4670,6 +4820,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     isOverdue,
                     isDueSoon,
                     renderedMarkdown,
+                    onPreviewClick,
                     contextMenu,
                     exportMenuOpen,
                     openContextMenu,
