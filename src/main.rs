@@ -1421,6 +1421,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             .cal-day, .cal-week-col, [draggable="true"] { break-inside: avoid; page-break-inside: avoid; }
             * { box-shadow: none !important; }
         }
+
+        .kbd {
+            background: #18181b; color: #e4e4e7; border: 1px solid #3f3f46; border-bottom-width: 2px;
+            border-radius: 3px; padding: 0 4px; font-size: 10px;
+        }
+        html.dark .kbd { background: #27272a; color: #e4e4e7; border-color: #52525b; }
     </style>
 </head>
 <body>
@@ -2397,7 +2403,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     </div>
 
                 </div>
-                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-end gap-2">
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center gap-2">
+                    <div v-if="draftTs" class="flex items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+                        <span>{{ draftRestored ? 'Entwurf vom ' : 'Entwurf gespeichert um ' }}{{ fmtClock(draftTs) }} <span class="text-zinc-400 dark:text-zinc-600 italic">(automatisch)</span></span>
+                        <button @click="clearNewNoteDraft" class="text-red-600 dark:text-red-400 hover:underline font-bold cursor-pointer">Entwurf löschen</button>
+                    </div>
+                    <div v-else></div>
                     <button 
                         @click="createNote" 
                         class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer">
@@ -2670,6 +2681,26 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 </div>
             </div>
         </div>
+
+        <!-- Shortcut help overlay -->
+        <div v-if="shortcutHelpOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-50" @click.self="shortcutHelpOpen = false">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-md shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center">
+                    <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Tastaturkürzel</span>
+                    <button @click="shortcutHelpOpen = false" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                </div>
+                <div class="p-3 text-[11px] text-zinc-700 dark:text-zinc-300 flex flex-col gap-2">
+                    <div class="flex justify-between gap-4"><span>Neue Notiz öffnen</span><span class="font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap"><kbd class="kbd">Alt</kbd>+<kbd class="kbd">N</kbd> · <kbd class="kbd">N</kbd></span></div>
+                    <div class="flex justify-between gap-4"><span>Suche fokussieren</span><span class="font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">K</kbd></span></div>
+                    <div class="flex justify-between gap-4"><span>Notiz speichern & schließen</span><span class="font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">S</kbd></span></div>
+                    <div class="flex justify-between gap-4"><span>Overlay schließen</span><span class="font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap"><kbd class="kbd">ESC</kbd></span></div>
+                    <div class="flex justify-between gap-4"><span>Diese Hilfe</span><span class="font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap"><kbd class="kbd">?</kbd></span></div>
+                </div>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-end">
+                    <button @click="shortcutHelpOpen = false" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-3 py-1 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer">Schließen</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -2696,6 +2727,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const newAptEndTime = ref('')
                 const newAptHasEnd = ref(false)
                 const isNewNoteOpen = ref(false)
+                const shortcutHelpOpen = ref(false)
+                const draftTs = ref(null)
+                const draftRestored = ref(false)
                 const newNoteTitleInputRef = ref(null)
                 const newNoteTextareaRef = ref(null)
                 const newNoteCaretMirrorRef = ref(null)
@@ -3173,8 +3207,16 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const handleGlobalKeydown = (e) => {
                     const isCtrlOrMeta = e.ctrlKey || e.metaKey;
                     const isAlt = e.altKey;
+                    const target = e.target;
+                    const isTyping = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
+                        target.tagName === 'SELECT' || target.isContentEditable);
 
                     if (isAlt && (e.key === 'n' || e.key === 'N' || e.code === 'KeyN')) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.stopImmediatePropagation()
+                        openNewNote()
+                    } else if (!isCtrlOrMeta && !isAlt && (e.key === 'n' || e.key === 'N') && !isTyping) {
                         e.preventDefault()
                         e.stopPropagation()
                         e.stopImmediatePropagation()
@@ -3185,12 +3227,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         e.stopImmediatePropagation()
                         focusSearchInput()
                     } else if (isCtrlOrMeta && (e.key === 's' || e.key === 'S')) {
-                        if (isModalOpen.value) {
+                        if (isModalOpen.value || isNewNoteOpen.value) {
                             e.preventDefault()
                             e.stopPropagation()
                             e.stopImmediatePropagation()
-                            saveActiveNote()
+                            if (isModalOpen.value) saveActiveNote()
+                            else createNote()
                         }
+                    } else if (e.key === '?' && !isTyping) {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        e.stopImmediatePropagation()
+                        shortcutHelpOpen.value = !shortcutHelpOpen.value
                     } else if (e.key === 'Escape') {
                         e.preventDefault()
                         e.stopPropagation()
@@ -3207,6 +3255,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             isSettingsOpen.value = false
                         } else if (exportMenuOpen.value) {
                             exportMenuOpen.value = false
+                        } else if (shortcutHelpOpen.value) {
+                            shortcutHelpOpen.value = false
                         } else if (reminderOpen.value) {
                             reminderOpen.value = false
                         } else if (isModalOpen.value) {
@@ -3248,8 +3298,66 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const isOverdue = (note) => dueStatus(note) === 'overdue'
                 const isDueSoon = (note) => dueStatus(note) === 'due'
 
+                // --- Draft-Autosave for the new-note modal (localStorage) ---
+                const fmtClock = (ts) => {
+                    const d = new Date(ts)
+                    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+                }
+                let draftTimer = null
+                const hasNewNoteDraftContent = () =>
+                    newNoteTitle.value.trim() || newNoteContent.value.trim() ||
+                    newNoteChecklist.value.length || newNoteAppointments.value.length
+                const persistNewNoteDraft = () => {
+                    if (!isNewNoteOpen.value || !hasNewNoteDraftContent()) return
+                    localStorage['notice-draft'] = JSON.stringify({
+                        title: newNoteTitle.value,
+                        priority: newNotePriority.value,
+                        due_date: newNoteDueDate.value,
+                        repeat_rule: newNoteRepeatRule.value,
+                        status: newNoteStatus.value,
+                        content: newNoteContent.value,
+                        checklist: newNoteChecklist.value,
+                        departments: newNoteDepartments.value,
+                        appointments: newNoteAppointments.value,
+                        ts: Date.now()
+                    })
+                    draftTs.value = Date.now()
+                    draftRestored.value = false
+                }
+                const scheduleDraftPersist = () => {
+                    clearTimeout(draftTimer)
+                    if (!isNewNoteOpen.value) return
+                    draftTimer = setTimeout(() => persistNewNoteDraft(), 800)
+                }
+                const clearNewNoteDraft = () => {
+                    clearTimeout(draftTimer)
+                    localStorage.removeItem('notice-draft')
+                    draftTs.value = null
+                    draftRestored.value = false
+                }
+                watch([newNoteTitle, newNoteContent, newNoteChecklist, newNotePriority,
+                       newNoteDueDate, newNoteRepeatRule, newNoteStatus,
+                       newNoteDepartments, newNoteAppointments],
+                      scheduleDraftPersist, { deep: true })
+
                 const openNewNote = () => {
                     isNewNoteOpen.value = true
+                    try {
+                        const d = JSON.parse(localStorage['notice-draft'] || 'null')
+                        if (d && d.ts && (d.title || d.content || (d.checklist || []).length || (d.appointments || []).length)) {
+                            newNoteTitle.value = d.title || ''
+                            newNoteContent.value = d.content || ''
+                            newNoteChecklist.value = d.checklist || []
+                            newNoteDepartments.value = d.departments || []
+                            newNoteAppointments.value = d.appointments || []
+                            newNotePriority.value = d.priority || 'medium'
+                            newNoteDueDate.value = d.due_date || ''
+                            newNoteRepeatRule.value = d.repeat_rule || ''
+                            newNoteStatus.value = d.status || 'backlog'
+                            draftTs.value = d.ts
+                            draftRestored.value = true
+                        }
+                    } catch (e) { }
                     requestAnimationFrame(() => {
                         if (newNoteTitleInputRef.value) {
                             newNoteTitleInputRef.value.focus()
@@ -3258,6 +3366,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 const closeNewNote = () => {
+                    if (draftTs.value) {
+                        if (hasNewNoteDraftContent()) persistNewNoteDraft()
+                        else clearNewNoteDraft()
+                    }
                     isNewNoteOpen.value = false
                     newNoteTitle.value = ''
                     newNotePriority.value = 'medium'
@@ -3357,6 +3469,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             const createdNote = await res.json()
                             notes.value.push(createdNote)
                             fetchDepartments()
+                            clearNewNoteDraft()
                             closeNewNote()
                         }
                     } catch (e) {
@@ -4869,6 +4982,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     isDark,
                     toggleTheme,
                     isSettingsOpen,
+                    shortcutHelpOpen,
+                    draftTs,
+                    draftRestored,
+                    fmtClock,
+                    clearNewNoteDraft,
                     autoArchiveEnabled,
                     autoArchiveDay,
                     reminderOpen,
