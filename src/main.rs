@@ -1596,7 +1596,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     v-model="boardDept"
                     class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-700 dark:text-zinc-300 cursor-pointer max-w-[140px]">
                     <option value="">Alle Abteilungen</option>
-                    <option v-for="d in departments" :key="d" :value="d">{{ d }}</option>
+                    <option v-for="d in departments" :key="d.name" :value="d.name">{{ d.name }}</option>
                 </select>
             </div>
 
