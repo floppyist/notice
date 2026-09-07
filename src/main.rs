@@ -1649,26 +1649,26 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </span>
                     </div>
 
-                    <div class="relative flex-1 p-1.5 overflow-y-auto space-y-1.5">
-                        <div v-if="dragCol === column.id && dragInsertY !== null" class="pointer-events-none absolute left-1.5 right-1.5 h-0.5 bg-emerald-500 z-10" :style="{ top: (dragInsertY - 1) + 'px' }"></div>
-                        <div v-if="getNotesByColumn(column.id).length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">
-                            {{ column.id === 'archived' ? 'Keine archivierten Notizen.' : 'Keine Notizen.' }}
-                        </div>
-                        <div 
-                            v-for="note in getNotesByColumn(column.id)" 
-                            :key="note.id"
-                            :data-note-id="note.id"
-                            draggable="true"
-                            @dragstart="startDrag(note)"
-                            @dragend="endDrag"
-                            @dblclick="openModal(note)"
-                            class="board-card bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group relative"
-                            :class="column.id === 'archived' ? 'opacity-70 border-zinc-200 dark:border-zinc-800' : {
-                                'bg-red-950/10': note.priority === 'high' && note.status !== 'done',
-                                'bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
-                                'bg-zinc-50 dark:bg-zinc-900': note.priority === 'low' && note.status !== 'done',
-                                'bg-emerald-950/15': note.status === 'done'
-                            }"
+                    <div class="relative flex-1 overflow-y-auto">
+                        <div class="p-1.5 space-y-1.5">
+                            <div v-if="getNotesByColumn(column.id).length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">
+                                {{ column.id === 'archived' ? 'Keine archivierten Notizen.' : 'Keine Notizen.' }}
+                            </div>
+                            <div 
+                                v-for="note in getNotesByColumn(column.id)" 
+                                :key="note.id"
+                                :data-note-id="note.id"
+                                draggable="true"
+                                @dragstart="startDrag(note)"
+                                @dragend="endDrag"
+                                @dblclick="openModal(note)"
+                                class="board-card bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group relative"
+                                :class="column.id === 'archived' ? 'opacity-70 border-zinc-200 dark:border-zinc-800' : {
+                                    'bg-red-950/10': note.priority === 'high' && note.status !== 'done',
+                                    'bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
+                                    'bg-zinc-50 dark:bg-zinc-900': note.priority === 'low' && note.status !== 'done',
+                                    'bg-emerald-950/15': note.status === 'done'
+                                }"
                         >
                             <div class="flex justify-between items-start gap-1 mb-1.5">
                                 <h3 class="font-bold text-xs text-zinc-900 dark:text-zinc-100 break-all leading-snug pr-1" :class="{ 'text-zinc-600 dark:text-zinc-400': column.id === 'archived' }">{{ note.title }}</h3>
@@ -1723,6 +1723,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 </div>
                             </div>
                         </div>
+                        </div>
+                        <div v-if="dragCol === column.id && dragInsertY !== null" class="pointer-events-none absolute left-1.5 right-1.5 h-0.5 bg-emerald-500 z-10" :style="{ top: (dragInsertY - 1) + 'px' }"></div>
                     </div>
                 </div>
             </div>
@@ -4203,20 +4205,24 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 const dropPosition = (e) => {
-                    const cont = e.currentTarget
+                    const col = e.currentTarget
+                    const cont = col.querySelector(':scope > .relative')
+                    if (!cont) return { idx: 0, y: 0 }
                     const contRect = cont.getBoundingClientRect()
-                    const rects = [...cont.querySelectorAll('.board-card')]
+                    const scroll = cont.scrollTop || 0
+                    const cards = [...cont.querySelectorAll('.board-card')]
                         .filter(c => Number(c.dataset.noteId) !== (draggedNote.value && draggedNote.value.id))
-                        .map(c => c.getBoundingClientRect())
-                    let idx = rects.length
-                    for (let i = 0; i < rects.length; i++) {
-                        if (e.clientY < rects[i].top + rects[i].height / 2) { idx = i; break }
+                    const viewRects = cards.map(c => c.getBoundingClientRect())
+                    let idx = viewRects.length
+                    for (let i = 0; i < viewRects.length; i++) {
+                        if (e.clientY < viewRects[i].top + viewRects[i].height / 2) { idx = i; break }
                     }
+                    const toLocal = (rv) => rv.top - contRect.top + scroll
                     let y
-                    if (rects.length === 0) y = 0
-                    else if (idx === 0) y = rects[0].top - contRect.top
-                    else if (idx >= rects.length) y = rects[rects.length - 1].bottom - contRect.top
-                    else y = (rects[idx - 1].bottom + rects[idx].top) / 2 - contRect.top
+                    if (viewRects.length === 0) y = 0
+                    else if (idx === 0) y = Math.max(0, toLocal(viewRects[0]) - 3)
+                    else if (idx >= viewRects.length) y = toLocal(viewRects[viewRects.length - 1]) + viewRects[viewRects.length - 1].height + 3
+                    else y = (toLocal(viewRects[idx - 1]) + viewRects[idx - 1].height + toLocal(viewRects[idx])) / 2
                     return { idx, y }
                 }
 
