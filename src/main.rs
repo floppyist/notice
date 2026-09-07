@@ -1430,7 +1430,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <div id="app" class="h-screen flex flex-col" @click="closeContextMenu">
+    <div id="app" class="h-screen flex flex-col">
         <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-4">
             <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
                 <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.4
@@ -1489,12 +1489,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     placeholder="Suchen (Strg+K)..." 
                     class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 flex-1 min-w-0"
                 >
-                <div class="relative shrink-0">
+                <div class="timer-anchor relative shrink-0">
                     <button 
-                        @click.stop="timerOpen = !timerOpen"
+                        @click="timerOpen = !timerOpen"
                         :title="timerRunning || timerRemaining > 0 ? 'Countdown läuft – ' + fmtTimer() : 'Countdown-Timer'"
                         :class="timerRunning ? 'bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 border-emerald-600' : (timerRemaining > 0 ? 'bg-amber-200 dark:bg-amber-900 text-zinc-800 dark:text-amber-100 border-amber-300 dark:border-amber-700' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700')"
-                        class="px-2.5 py-1 text-xs tabular-nums border cursor-pointer transition-colors">
+                        class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-xs tabular-nums border cursor-pointer transition-colors">
                         ⏱ {{ fmtTimer() }}
                     </button>
                     <div 
@@ -1526,15 +1526,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 </div>
                 <button 
                     @click="openNewNote" 
-                    class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors shrink-0">
+                    class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors shrink-0">
                     + NEU
                 </button>
-                <div class="relative shrink-0">
+                <div class="daten-anchor relative shrink-0">
                     <button 
-                        @click.stop="exportMenuOpen = !exportMenuOpen" 
+                        @click="exportMenuOpen = !exportMenuOpen" 
                         :disabled="notes.length === 0 && contacts.length === 0"
                         :class="notes.length === 0 && contacts.length === 0 ? 'opacity-40 cursor-not-allowed bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-400 dark:text-zinc-600' : 'bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 cursor-pointer'"
-                        class="px-2.5 py-1 text-xs border">
+                        class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-xs border">
                         Daten ▾
                     </button>
                     <div 
@@ -1629,8 +1629,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     v-for="column in expandedColumns" 
                     :key="column.id"
                     class="bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden"
-                    @dragover.prevent
-                    @drop="onDrop(column.id)"
+                    :class="dragCol === column.id ? 'ring-2 ring-emerald-500/40' : ''"
+                    @dragover.prevent="onColDragOver(column.id, $event)"
+                    @drop.prevent.stop="onColDrop(column.id, $event)"
                 >
                     <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-2.5 py-1.5 flex justify-between items-center shrink-0">
                         <button @click="toggleCollapse(column.id)" class="text-[11px] font-bold tracking-wider text-zinc-700 dark:text-zinc-300 uppercase flex items-center gap-1.5 cursor-pointer">
@@ -1648,19 +1649,20 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </span>
                     </div>
 
-                    <div class="flex-1 p-1.5 overflow-y-auto space-y-1.5">
+                    <div class="relative flex-1 p-1.5 overflow-y-auto space-y-1.5">
+                        <div v-if="dragCol === column.id && dragInsertY !== null" class="pointer-events-none absolute left-1.5 right-1.5 h-0.5 bg-emerald-500 z-10" :style="{ top: (dragInsertY - 1) + 'px' }"></div>
                         <div v-if="getNotesByColumn(column.id).length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">
                             {{ column.id === 'archived' ? 'Keine archivierten Notizen.' : 'Keine Notizen.' }}
                         </div>
                         <div 
                             v-for="note in getNotesByColumn(column.id)" 
                             :key="note.id"
+                            :data-note-id="note.id"
                             draggable="true"
                             @dragstart="startDrag(note)"
-                            @dragover.prevent="onDragOver(note, $event)"
-                            @drop.prevent.stop="onDrop(column.id, note)"
+                            @dragend="endDrag"
                             @dblclick="openModal(note)"
-                            class="bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group relative"
+                            class="board-card bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group relative"
                             :class="column.id === 'archived' ? 'opacity-70 border-zinc-200 dark:border-zinc-800' : {
                                 'bg-red-950/10': note.priority === 'high' && note.status !== 'done',
                                 'bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
@@ -1671,7 +1673,6 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             <div class="flex justify-between items-start gap-1 mb-1.5">
                                 <h3 class="font-bold text-xs text-zinc-900 dark:text-zinc-100 break-all leading-snug pr-1" :class="{ 'text-zinc-600 dark:text-zinc-400': column.id === 'archived' }">{{ note.title }}</h3>
                                 <div class="flex gap-1 shrink-0">
-                                    <button @click.stop="togglePin(note)" :title="note.pinned ? 'Aus der Pin-Liste entfernen' : 'Pinnen'" class="text-[10px] px-1 font-mono" :class="note.pinned ? 'text-amber-500 dark:text-amber-400' : 'text-zinc-400 dark:text-zinc-600 hover:text-amber-500 dark:hover:text-amber-400'">📌</button>
                                     <button @click.stop="duplicateNote(note)" title="Duplizieren" class="text-zinc-400 dark:text-zinc-600 hover:text-emerald-600 dark:text-emerald-400 text-[10px] px-1 font-mono">[+]</button>
                                     <button v-if="column.id === 'archived'" @click.stop="unarchiveNote(note)" title="Wiederherstellen" class="text-zinc-400 dark:text-zinc-600 hover:text-emerald-600 dark:text-emerald-400 text-[10px] px-1 font-mono shrink-0">[R]</button>
                                     <button v-else @click.stop="archiveNote(note)" title="Archivieren" class="text-zinc-400 dark:text-zinc-600 hover:text-zinc-700 dark:text-zinc-300 text-[10px] px-1 font-mono">[A]</button>
@@ -2191,7 +2192,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- Overdue appointment reminder (floating panel, z-40) -->
-        <div v-if="reminderOpen" class="fixed bottom-3 right-3 w-full max-w-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 flex flex-col shadow-2xl z-40">
+        <div v-if="reminderOpen" class="reminder-panel fixed bottom-3 right-3 w-full max-w-sm bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 flex flex-col shadow-2xl z-40">
             <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
                 <span class="text-xs font-bold tracking-widest text-red-600 dark:text-red-400 uppercase">Abgelaufene Termine</span>
                 <button @click="reminderOpen = false" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">[x]</button>
@@ -2366,10 +2367,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 >
                                 <button @click="addNewNoteStep" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer shrink-0">+</button>
                             </div>
-                            <div class="overflow-y-auto space-y-1.5 pr-1 h-28 shrink-0">
+                            <div class="overflow-y-auto space-y-1.5 pr-1 h-28 shrink-0" @dragover.prevent @drop.prevent.stop="stepDrop($event, newNoteChecklist)">
                                 <div v-if="newNoteChecklist.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-2">Keine Zwischensteps.</div>
-                                <div v-for="(step, index) in newNoteChecklist" :key="index" class="flex items-center justify-between bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-1 gap-2">
-                                    <span class="text-[11px] text-zinc-700 dark:text-zinc-300 break-all">{{ step.text }}</span>
+                                <div v-for="(step, index) in newNoteChecklist" :key="index" draggable="true" @dragstart="stepDragStart(index)" class="step-row cursor-grab active:cursor-grabbing flex items-center justify-between bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-1 gap-2">
+                                    <span class="text-zinc-400 dark:text-zinc-600 select-none shrink-0">⠿</span>
+                                    <span class="text-[11px] text-zinc-700 dark:text-zinc-300 break-all flex-1 min-w-0">{{ step.text }}</span>
                                     <button @click="removeNewNoteStep(index)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] shrink-0 font-mono">[x]</button>
                                 </div>
                             </div>
@@ -2579,7 +2581,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         <div 
                             v-if="contextMenu.show" 
                             :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-                            class="absolute z-50 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs w-52 font-mono select-none"
+                            class="fmt-menu absolute z-50 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs w-52 font-mono select-none"
                         >
                             <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1">Markdown Format</div>
                             <button @click="applyFormat('**')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Fett</span><span class="text-zinc-600 dark:text-zinc-500">**text**</span></button>
@@ -2630,10 +2632,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 >
                                 <button @click="addStep" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer">+</button>
                             </div>
-                            <div class="space-y-1.5 pr-1 max-h-40 overflow-y-auto">
+                            <div class="space-y-1.5 pr-1 max-h-40 overflow-y-auto" @dragover.prevent @drop.prevent.stop="stepDrop($event, activeChecklist)">
                                 <div v-if="activeChecklist.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">Keine Zwischensteps vorhanden.</div>
-                                <div v-for="(step, index) in activeChecklist" :key="index" class="flex items-center justify-between bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-1 gap-2">
-                                    <label class="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer overflow-hidden">
+                                <div v-for="(step, index) in activeChecklist" :key="index" draggable="true" @dragstart="stepDragStart(index)" class="step-row cursor-grab active:cursor-grabbing flex items-center justify-between bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-1 gap-2">
+                                    <span class="text-zinc-400 dark:text-zinc-600 select-none shrink-0">⠿</span>
+                                    <label class="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer overflow-hidden flex-1 min-w-0">
                                         <input type="checkbox" v-model="step.done" class="accent-emerald-600 cursor-pointer">
                                         <span :class="{'line-through text-zinc-400 dark:text-zinc-600': step.done}" class="break-all">{{ step.text }}</span>
                                     </label>
@@ -3204,6 +3207,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (searchInputRef.value) searchInputRef.value.focus()
                 }
 
+                const handleGlobalClick = (e) => {
+                    const t = e.target
+                    const inside = (sel) => t && t.closest ? !!t.closest(sel) : false
+                    if (contextMenu.value.show && !inside('.fmt-menu')) contextMenu.value.show = false
+                    if (exportMenuOpen.value && !inside('.daten-anchor')) exportMenuOpen.value = false
+                    if (timerOpen.value && !inside('.timer-anchor')) timerOpen.value = false
+                    if (reminderOpen.value && !inside('.reminder-panel')) reminderOpen.value = false
+                }
+
                 const handleGlobalKeydown = (e) => {
                     const isCtrlOrMeta = e.ctrlKey || e.metaKey;
                     const isAlt = e.altKey;
@@ -3255,6 +3267,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             isSettingsOpen.value = false
                         } else if (exportMenuOpen.value) {
                             exportMenuOpen.value = false
+                        } else if (timerOpen.value) {
+                            timerOpen.value = false
                         } else if (shortcutHelpOpen.value) {
                             shortcutHelpOpen.value = false
                         } else if (reminderOpen.value) {
@@ -3274,11 +3288,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     fetchContacts()
                     fetchTrash()
                     window.addEventListener('keydown', handleGlobalKeydown, { capture: true })
+                    document.addEventListener('click', handleGlobalClick)
                     startReminderLoop()
                 })
 
                 onUnmounted(() => {
                     window.removeEventListener('keydown', handleGlobalKeydown, { capture: true })
+                    document.removeEventListener('click', handleGlobalClick)
                     clearInterval(reminderInterval)
                     clearInterval(timerInterval)
                 })
@@ -4177,13 +4193,73 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 // --- Drag & drop sorting ---
-                let dragOverNote = null
+                const dragCol = ref(null)
+                const dragInsertY = ref(null)
 
-                const onDragOver = (note, e) => {
-                    dragOverNote = note
+                const endDrag = () => {
+                    draggedNote.value = null
+                    dragCol.value = null
+                    dragInsertY.value = null
                 }
 
-                const reorderColumn = async (columnId, dragged, target) => {
+                const dropPosition = (e) => {
+                    const cont = e.currentTarget
+                    const contRect = cont.getBoundingClientRect()
+                    const rects = [...cont.querySelectorAll('.board-card')]
+                        .filter(c => Number(c.dataset.noteId) !== (draggedNote.value && draggedNote.value.id))
+                        .map(c => c.getBoundingClientRect())
+                    let idx = rects.length
+                    for (let i = 0; i < rects.length; i++) {
+                        if (e.clientY < rects[i].top + rects[i].height / 2) { idx = i; break }
+                    }
+                    let y
+                    if (rects.length === 0) y = 0
+                    else if (idx === 0) y = rects[0].top - contRect.top
+                    else if (idx >= rects.length) y = rects[rects.length - 1].bottom - contRect.top
+                    else y = (rects[idx - 1].bottom + rects[idx].top) / 2 - contRect.top
+                    return { idx, y }
+                }
+
+                const onColDragOver = (columnId, e) => {
+                    dragCol.value = columnId
+                    dragInsertY.value = dropPosition(e).y
+                }
+
+                const onColDrop = async (columnId, e) => {
+                    const dragged = draggedNote.value
+                    if (!dragged) return
+                    const { idx } = dropPosition(e)
+                    if (dragged.status === columnId) {
+                        await reorderColumn(columnId, dragged, idx)
+                    } else {
+                        dragged.status = columnId
+                        const maxSort = notes.value
+                            .filter(n => n.status === columnId && n.id !== dragged.id)
+                            .reduce((max, n) => Math.max(max, n.sort_order || 0), 0)
+                        dragged.sort_order = maxSort + 1
+                        try {
+                            await fetch(`/api/notes/${dragged.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    title: dragged.title,
+                                    content: dragged.content,
+                                    status: dragged.status,
+                                    priority: dragged.priority,
+                                    due_date: dragged.due_date,
+                                    sort_order: dragged.sort_order
+                                })
+                            })
+                        } catch (err) {
+                            console.error('Fehler beim Verschieben', err)
+                        }
+                        await reorderColumn(columnId, dragged, idx)
+                    }
+                    endDrag()
+                    collectOverdueReminders()
+                }
+
+                const reorderColumn = async (columnId, dragged, to) => {
                     let colNotes = notes.value
                         .filter(n => n.status === columnId)
                         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
@@ -4192,9 +4268,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     const fromIndex = colNotes.findIndex(n => n.id === dragged.id)
                     if (fromIndex !== -1) colNotes.splice(fromIndex, 1)
 
-                    // Find the target index
-                    let toIndex = colNotes.findIndex(n => n.id === target.id)
-                    if (toIndex === -1) toIndex = colNotes.length
+                    // Target index into the remaining list
+                    let toIndex = to
+                    if (toIndex === undefined || toIndex === null || toIndex < 0) toIndex = colNotes.length
+                    if (toIndex > colNotes.length) toIndex = colNotes.length
 
                     // Insert
                     colNotes.splice(toIndex, 0, dragged)
@@ -4268,6 +4345,27 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 const removeStep = (index) => {
                     activeChecklist.value.splice(index, 1)
+                }
+
+                let dragStepIndex = null
+
+                const stepDragStart = (index) => {
+                    dragStepIndex = index
+                }
+
+                const stepDrop = (e, list) => {
+                    if (dragStepIndex === null) return
+                    const rects = [...e.currentTarget.querySelectorAll('.step-row')]
+                        .map(el => el.getBoundingClientRect())
+                    let to = rects.length
+                    for (let i = 0; i < rects.length; i++) {
+                        if (e.clientY < rects[i].top + rects[i].height / 2) { to = i; break }
+                    }
+                    const from = dragStepIndex
+                    dragStepIndex = null
+                    if (from === to || from === to - 1) return
+                    const [moved] = list.splice(from, 1)
+                    list.splice(from < to ? to - 1 : to, 0, moved)
                 }
 
                 const renderedMarkdown = computed(() => {
@@ -4908,7 +5006,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     else if (boardVisibility.value === 'due') filtered = filtered.filter(note => note.due_date)
                     else if (boardVisibility.value === 'nodate') filtered = filtered.filter(note => !note.due_date)
                     if (boardDept.value) filtered = filtered.filter(note => getDepartments(note).includes(boardDept.value))
-                    filtered.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
+                    filtered.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
                     if (searchQuery.value.trim() !== '') {
                         const q = parseSearchQuery(searchQuery.value)
                         filtered = filtered.filter(note => matchesNote(note, q))
@@ -4916,65 +5014,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     return filtered
                 }
 
-                const togglePin = async (note) => {
-                    const newVal = !note.pinned
-                    note.pinned = newVal ? 1 : 0
-                    try {
-                        const res = await fetch(`/api/notes/${note.id}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ pinned: newVal })
-                        })
-                        if (!res.ok) {
-                            note.pinned = newVal ? 0 : 1
-                        }
-                    } catch (e) {
-                        note.pinned = newVal ? 0 : 1
-                        console.error('Fehler beim Pinnen', e)
-                    }
-                }
-
                 const startDrag = (note) => {
                     draggedNote.value = note
-                }
-
-                const onDrop = async (columnId, targetNote) => {
-                    if (!draggedNote.value) return
-                    const dragged = draggedNote.value
-
-                    if (targetNote && dragged.id === targetNote.id) {
-                        draggedNote.value = null
-                        return
-                    }
-
-                    if (dragged.status === columnId && targetNote) {
-                        // Reorder within the same column
-                        await reorderColumn(columnId, dragged, targetNote)
-                    } else if (dragged.status !== columnId) {
-                        // Cross-column move, append to end
-                        dragged.status = columnId
-                        const maxSort = notes.value
-                            .filter(n => n.status === columnId && n.id !== dragged.id)
-                            .reduce((max, n) => Math.max(max, n.sort_order || 0), 0)
-                        dragged.sort_order = maxSort + 1
-                        await fetch(`/api/notes/${dragged.id}`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                title: dragged.title,
-                                content: dragged.content,
-                                status: dragged.status,
-                                priority: dragged.priority,
-                                due_date: dragged.due_date,
-                                sort_order: dragged.sort_order
-                            })
-                        })
-                        if (targetNote && columnId !== 'archived') {
-                            await reorderColumn(columnId, dragged, targetNote)
-                        }
-                    }
-                    draggedNote.value = null
-                    collectOverdueReminders()
+                    dragCol.value = null
+                    dragInsertY.value = null
                 }
 
                 return {
@@ -5098,6 +5141,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     closeModal,
                     addStep,
                     removeStep,
+                    stepDragStart,
+                    stepDrop,
                     saveActiveNote,
                     deleteNote,
                     duplicateNote,
@@ -5105,11 +5150,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     unarchiveNote,
                     getNotesByColumn,
                     startDrag,
-                    onDragOver,
-                    onDrop,
+                    endDrag,
+                    dragCol,
+                    dragInsertY,
+                    onColDragOver,
+                    onColDrop,
                     boardVisibility,
                     boardDept,
-                    togglePin,
                     handleAutocomplete,
                     handleAutocompleteKeydown,
                     selectAutocomplete,
