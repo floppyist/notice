@@ -31,6 +31,7 @@ struct Note {
     sort_order: i64,
     completed_at: Option<String>,
     repeat_rule: Option<String>,
+    pinned: i64,
 }
 
 #[derive(Serialize, Deserialize, FromRow, Clone)]
@@ -91,6 +92,7 @@ struct UpdateNote {
     appointments: Option<String>,
     sort_order: Option<i64>,
     repeat_rule: Option<String>,
+    pinned: Option<Option<bool>>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -310,6 +312,11 @@ async fn main() {
         .execute(&pool)
         .await;
 
+    // Migration: add pinned column (board pins)
+    let _ = sqlx::query("ALTER TABLE notes ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        .execute(&pool)
+        .await;
+
     // Data database (contacts.db): separate SQLite DB for contacts & future data-view types
     let db = SqlitePool::connect("sqlite://contacts.db?mode=rwc")
         .await
@@ -395,7 +402,7 @@ async fn index_handler() -> Html<String> {
 }
 
 async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, id ASC")
+    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule, pinned FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, id ASC")
         .fetch_all(&state.pool)
         .await
     {
@@ -514,8 +521,8 @@ async fn create_note(
 
     let result = sqlx::query(
         r#"
-        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule, pinned)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         "#,
     )
     .bind(payload.title)
@@ -585,6 +592,10 @@ async fn update_note(
         })
         .flatten()
         .or(existing.repeat_rule);
+    let pinned = match payload.pinned {
+        Some(Some(v)) => if v { 1 } else { 0 },
+        _ => existing.pinned,
+    };
 
     // Recurring notes: completing one occurrence advances due_date + appointment
     // dates to the next occurrence and the note returns to the backlog.
@@ -618,7 +629,7 @@ async fn update_note(
 
     let result = sqlx::query(
         r#"
-        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, department = ?, departments = ?, appointments = ?, sort_order = ?, completed_at = ?, repeat_rule = ? WHERE id = ?
+        UPDATE notes SET title = ?, content = ?, status = ?, priority = ?, due_date = ?, department = ?, departments = ?, appointments = ?, sort_order = ?, completed_at = ?, repeat_rule = ?, pinned = ? WHERE id = ?
         "#,
     )
     .bind(title)
@@ -632,6 +643,7 @@ async fn update_note(
     .bind(sort_order)
     .bind(completed_at)
     .bind(repeat_rule)
+    .bind(pinned)
     .bind(id)
     .execute(&state.pool)
     .await;
@@ -682,7 +694,7 @@ async fn force_delete_note(
 
 async fn get_trash(State(state): State<AppState>) -> impl IntoResponse {
     let notes = sqlx::query_as::<_, Note>(
-        "SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
+        "SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule, pinned FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
     )
     .fetch_all(&state.pool)
     .await;
@@ -789,8 +801,8 @@ async fn import_data(
 
         let res = sqlx::query(
             r#"
-            INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule, pinned)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             "#,
         )
         .bind(&title)
@@ -919,8 +931,8 @@ async fn duplicate_note(
 
     let result = sqlx::query(
         r#"
-        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, repeat_rule, pinned)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         "#,
     )
     .bind(new_title)
@@ -1399,6 +1411,16 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         .cal-timeline-block.cal-event-due { background: rgba(37, 99, 235, 0.18); border-left-color: #3b82f6; color: var(--blue-bright); }
         .apt-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--apt-bg); border: 1px solid var(--border); font-size: 11px; min-width: 0; overflow: hidden; }
         .apt-item:hover { border-color: var(--border-hover); }
+
+        /* Print: clean board output */
+        @media print {
+            html, body { height: auto !important; overflow: visible !important; background: #fff !important; color: #000 !important; }
+            header, .fixed { display: none !important; }
+            main { overflow: visible !important; padding: 0 !important; background: #fff !important; }
+            main > .flex-1, main .overflow-y-auto { overflow: visible !important; }
+            .cal-day, .cal-week-col, [draggable="true"] { break-inside: avoid; page-break-inside: avoid; }
+            * { box-shadow: none !important; }
+        }
     </style>
 </head>
 <body>
@@ -1550,6 +1572,29 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
             <!-- BOARD VIEW -->
             <template v-if="activeView === 'board'">
+            <div class="flex-1 flex flex-col gap-1.5 min-w-0 h-full">
+
+            <!-- Board filter bar -->
+            <div class="bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800 px-2 py-1 flex items-center gap-1.5 shrink-0">
+                <span class="text-[10px] font-bold text-zinc-600 dark:text-zinc-500 uppercase tracking-wider">Filter:</span>
+                <button 
+                    v-for="f in [{id:'all',label:'Alle'},{id:'overdue',label:'Überfällig'},{id:'due',label:'Mit Datum'},{id:'nodate',label:'Ohne Datum'}]" 
+                    :key="f.id"
+                    @click="boardVisibility = f.id"
+                    class="px-2 py-0.5 text-[10px] border cursor-pointer transition-colors"
+                    :class="boardVisibility === f.id ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ f.label }}
+                </button>
+                <span class="w-px h-4 bg-zinc-300 dark:bg-zinc-700 mx-1"></span>
+                <select 
+                    v-model="boardDept"
+                    class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-700 dark:text-zinc-300 cursor-pointer max-w-[140px]">
+                    <option value="">Alle Abteilungen</option>
+                    <option v-for="d in departments" :key="d" :value="d">{{ d }}</option>
+                </select>
+            </div>
+
+            <div class="flex-1 flex gap-1.5 min-h-0">
 
             <!-- Left: vertical tab stack for minimized columns (archive-like background) -->
             <div v-if="collapsedStatuses.length > 0" class="bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800 flex flex-col items-center h-full overflow-y-auto shrink-0" style="width:40px">
@@ -1620,6 +1665,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             <div class="flex justify-between items-start gap-1 mb-1.5">
                                 <h3 class="font-bold text-xs text-zinc-900 dark:text-zinc-100 break-all leading-snug pr-1" :class="{ 'text-zinc-600 dark:text-zinc-400': column.id === 'archived' }">{{ note.title }}</h3>
                                 <div class="flex gap-1 shrink-0">
+                                    <button @click.stop="togglePin(note)" :title="note.pinned ? 'Aus der Pin-Liste entfernen' : 'Pinnen'" class="text-[10px] px-1 font-mono" :class="note.pinned ? 'text-amber-500 dark:text-amber-400' : 'text-zinc-400 dark:text-zinc-600 hover:text-amber-500 dark:hover:text-amber-400'">📌</button>
                                     <button @click.stop="duplicateNote(note)" title="Duplizieren" class="text-zinc-400 dark:text-zinc-600 hover:text-emerald-600 dark:text-emerald-400 text-[10px] px-1 font-mono">[+]</button>
                                     <button v-if="column.id === 'archived'" @click.stop="unarchiveNote(note)" title="Wiederherstellen" class="text-zinc-400 dark:text-zinc-600 hover:text-emerald-600 dark:text-emerald-400 text-[10px] px-1 font-mono shrink-0">[R]</button>
                                     <button v-else @click.stop="archiveNote(note)" title="Archivieren" class="text-zinc-400 dark:text-zinc-600 hover:text-zinc-700 dark:text-zinc-300 text-[10px] px-1 font-mono">[A]</button>
@@ -1673,6 +1719,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     </div>
                 </div>
             </div>
+
+            </div>
+            </div>
             </template>
 
             <!-- CALENDAR VIEW -->
@@ -1711,13 +1760,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 :key="idx"
                                 class="cal-day"
                                 :class="{ 'bg-zinc-100/50 dark:bg-zinc-900/50': day.currentMonth, 'bg-zinc-100 dark:bg-zinc-950': !day.currentMonth }"
-                                @click="calDayClick(day)">
+                                @click="calDayClick(day)"
+                                @dragover.prevent
+                                @drop.stop="calDayDrop(day)">
                                 <div class="cal-day-num" :class="{ 'today': day.isToday, 'other-month': !day.currentMonth }">{{ day.date.getDate() }}</div>
                                 <div class="flex flex-wrap">
                                     <span v-for="(dot, di) in day.dots.slice(0, 4)" :key="di" class="cal-dot" :class="dot.cls"></span>
                                 </div>
                                 <div class="mt-0.5 space-y-0.5 max-h-16 overflow-hidden">
-                                    <div v-for="(ev, ei) in day.events.slice(0, 3)" :key="ei" class="cal-event-item cursor-pointer" :class="ev.cls" :title="ev.title" @click.stop="openModal(notesById[ev.noteId])">
+                                    <div v-for="(ev, ei) in day.events.slice(0, 3)" :key="ei" class="cal-event-item cursor-pointer" :class="ev.cls" :title="ev.title" draggable="true" @dragstart="calEventDragStart(ev, $event)" @click.stop="openModal(notesById[ev.noteId])">
                                         <span class="truncate">{{ ev.title }}</span>
                                         <span v-if="ev.departments && ev.departments.length" class="flex flex-wrap gap-0.5 mt-0.5">
                                             <span v-for="(dept, di) in ev.departments" :key="di" class="dept-tag dept-tag-sm">{{ dept }}</span>
@@ -1730,7 +1781,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     </div>
 
                     <!-- Week View -->
-                    <div v-if="calViewMode === 'week'" class="flex-1 overflow-auto">
+                    <div v-if="calViewMode === 'week'" ref="calWeekScrollRef" class="flex-1 overflow-auto" @vue:mounted="scrollWeekToNow">
                         <div class="flex" style="--pix-per-hour:36px">
                             <div class="shrink-0" style="width:32px">
                                 <div class="cal-week-header" style="border-bottom:0">&nbsp;<br>&nbsp;</div>
@@ -2622,7 +2673,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
     </div>
 
     <script>
-        const { createApp, ref, computed, watch, onMounted, onUnmounted } = Vue
+        const { createApp, ref, computed, watch, nextTick, onMounted, onUnmounted } = Vue
 
         createApp({
             setup() {
@@ -4626,6 +4677,58 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     return result
                 })
 
+                // Week view: auto-scroll the timeline to the current hour on (re)mount of the view
+                const calWeekScrollRef = ref(null)
+                const scrollWeekToNow = () => {
+                    const apply = () => {
+                        if (calWeekScrollRef.value) {
+                            const h = new Date().getHours() + 1
+                            calWeekScrollRef.value.scrollTop = Math.max(0, h * 36 - 100)
+                        }
+                    }
+                    nextTick(apply)
+                    requestAnimationFrame(apply)
+                    setTimeout(apply, 250)
+                }
+
+                // Month view: drag & drop to move appointments between days
+                const calDragEv = ref(null)
+                const addDaysToISO = (iso, delta) => {
+                    const d = new Date(iso + 'T00:00:00')
+                    d.setDate(d.getDate() + delta)
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                }
+                const calEventDragStart = (ev, e) => {
+                    if (!ev.start) return
+                    calDragEv.value = { noteId: ev.noteId, aptTitle: ev.aptTitle, start: ev.start, end: ev.end || '' }
+                    try { e.dataTransfer.setData('text/plain', ev.title || '') } catch (e2) {}
+                }
+                const calDayDrop = async (day) => {
+                    const drag = calDragEv.value
+                    calDragEv.value = null
+                    if (!drag) return
+                    const targetStr = dateStr(day.date)
+                    if (drag.start === targetStr) return
+                    const delta = Math.round((new Date(targetStr + 'T00:00:00') - new Date(drag.start + 'T00:00:00')) / 86400000)
+                    if (delta === 0) return
+                    const note = notes.value.find(n => n.id === drag.noteId)
+                    if (!note) return
+                    const appts = getAppointments(note)
+                    const apt = appts.find(a => (a.title || '') === drag.aptTitle && (a.start || '') === drag.start)
+                    if (!apt) return
+                    apt.start = addDaysToISO(apt.start, delta)
+                    if (apt.end) apt.end = addDaysToISO(apt.end, delta)
+                    const res = await fetch(`/api/notes/${note.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ appointments: JSON.stringify(appts) })
+                    })
+                    if (res.ok) {
+                        note.appointments = JSON.stringify(appts)
+                        collectOverdueReminders()
+                    }
+                }
+
                 const calYearMonths = computed(() => {
                     const year = calCursor.value.getFullYear()
                     const months = []
@@ -4683,14 +4786,39 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     return calEventsForDate(calSelectedDay.value)
                 })
 
+                const boardVisibility = ref('all')
+                const boardDept = ref('')
+
                 const getNotesByColumn = (status) => {
                     let filtered = notes.value.filter(note => note.status === status)
-                    filtered.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
+                    if (boardVisibility.value === 'overdue') filtered = filtered.filter(isOverdue)
+                    else if (boardVisibility.value === 'due') filtered = filtered.filter(note => note.due_date)
+                    else if (boardVisibility.value === 'nodate') filtered = filtered.filter(note => !note.due_date)
+                    if (boardDept.value) filtered = filtered.filter(note => getDepartments(note).includes(boardDept.value))
+                    filtered.sort((a, b) => (b.pinned || 0) - (a.pinned || 0) || (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
                     if (searchQuery.value.trim() !== '') {
                         const q = parseSearchQuery(searchQuery.value)
                         filtered = filtered.filter(note => matchesNote(note, q))
                     }
                     return filtered
+                }
+
+                const togglePin = async (note) => {
+                    const newVal = !note.pinned
+                    note.pinned = newVal ? 1 : 0
+                    try {
+                        const res = await fetch(`/api/notes/${note.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ pinned: newVal })
+                        })
+                        if (!res.ok) {
+                            note.pinned = newVal ? 0 : 1
+                        }
+                    } catch (e) {
+                        note.pinned = newVal ? 0 : 1
+                        console.error('Fehler beim Pinnen', e)
+                    }
                 }
 
                 const startDrag = (note) => {
@@ -4861,6 +4989,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     startDrag,
                     onDragOver,
                     onDrop,
+                    boardVisibility,
+                    boardDept,
+                    togglePin,
                     handleAutocomplete,
                     handleAutocompleteKeydown,
                     selectAutocomplete,
@@ -4895,6 +5026,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     calDayClick,
                     calSelectedDayTitle,
                     calSelectedDayEvents,
+                    calWeekScrollRef,
+                    scrollWeekToNow,
+                    calEventDragStart,
+                    calDayDrop,
                     fmtDate,
                     fmtAptRange,
                     dateStr,
