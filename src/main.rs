@@ -1751,7 +1751,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <span v-if="getChecklistProgress(note)" class="text-[9px] text-emerald-600 dark:text-emerald-400/90 font-mono" :class="{ 'text-emerald-500': getChecklistProgress(note).done === getChecklistProgress(note).total }">
                                     ✓ {{ getChecklistProgress(note).done }}/{{ getChecklistProgress(note).total }}
                                 </span>
-                                <span v-if="getAppointments(note).length > 0" class="text-[9px] text-violet-600 dark:text-violet-400/90 font-mono">Termine: {{ getAppointments(note).length }}</span>
+                                <span v-if="getAppointments(note).filter(a => !a.done).length > 0" class="text-[9px] text-violet-600 dark:text-violet-400/90 font-mono">Termine: {{ getAppointments(note).filter(a => !a.done).length }}</span>
                                 <span v-if="note.repeat_rule" class="text-[9px] text-sky-600 dark:text-sky-400/90 font-mono" :title="'Wiederholt ' + ({daily: 'täglich', weekly: 'wöchentlich', monthly: 'monatlich'}[note.repeat_rule] || note.repeat_rule)">↻ {{ {daily: 'täglich', weekly: 'wöchentlich', monthly: 'monatlich'}[note.repeat_rule] || note.repeat_rule }}</span>
                                 <div v-if="getDepartments(note).length > 0" class="flex flex-wrap gap-1">
                                     <span 
@@ -2314,20 +2314,20 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         <span class="block text-[10px] text-zinc-800 dark:text-zinc-200 truncate">{{ r.kind === 'apt' ? (r.note.title + ' – ' + (r.apt.title || 'Termin')) : ('Fällig: ' + r.note.title) }}</span>
                         <span class="block text-zinc-600 dark:text-zinc-400 font-mono text-[9px] whitespace-nowrap">{{ r.range }}</span>
                     </span>
+                    <button v-if="r.kind === 'apt'" @click="completeReminderAppointment(ri)" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-600 text-zinc-700 dark:text-zinc-300 hover:text-white px-2 py-0.5 text-[9px] border border-zinc-300 dark:border-zinc-700 font-bold cursor-pointer shrink-0">Erledigt</button>
                     <button @click="openNoteFromReminder(ri)" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-600 text-zinc-700 dark:text-zinc-300 hover:text-white px-2 py-0.5 text-[9px] border border-zinc-300 dark:border-zinc-700 font-bold cursor-pointer shrink-0">Öffnen</button>
                 </div>
             </div>
         </div>
+
+        <input ref="imageUploadInputRef" type="file" accept="image/*" class="hidden" @change="onImageFileSelected">
 
         <!-- New note form -->
         <div v-if="isNewNoteOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @keydown.enter="handleNewNoteEnter">
             <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Neue Notiz</span>
-                    <div class="flex items-center gap-2">
-                        <button @click="toggleNewNotePreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2.5 py-0.5 font-semibold transition-colors text-[11px] cursor-pointer">{{ newNotePreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
-                        <button @click="closeNewNote" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
-                    </div>
+                    <button @click="closeNewNote" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
                 <div class="p-3 flex flex-col gap-3 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -2424,25 +2424,28 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </label>
                     </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div class="flex flex-col gap-1 relative">
+                    <div class="flex flex-col gap-1 relative">
                             <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
-                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Inhalt (Markdown)</span>
+                                <div class="flex justify-between items-center mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">
+                                    <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase">Inhalt (Markdown)</span>
+                                    <button @click="toggleNewNotePreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ newNotePreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
+                                </div>
                                 <textarea 
                                 ref="newNoteTextareaRef"
                                 v-if="!newNotePreviewMode"
                                 v-model="newNoteContent" 
                                 placeholder="Inhalt schreiben... ([[ Für Notiz-Links) (Rechtsklick für Formatierung)" 
+                                @contextmenu.prevent="openContextMenu" 
                                 @input="handleAutocomplete"
                                 @keyup="updateAutocompletePos"
                                 @click="updateAutocompletePos"
                                 @keydown="handleAutocompleteKeydown"
                                 @paste="onEditorPaste($event, 'new')"
-                                class="w-full h-40 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                                class="w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
                                 ></textarea>
                                 <div 
                                      v-if="newNotePreviewMode" 
-                                     class="markdown-body w-full h-40 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                     class="markdown-body w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
                                      v-html="newNoteRenderedMarkdown"
                                      @click.prevent="onNewNotePreviewClick">
                                 </div>
@@ -2471,7 +2474,57 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     Keine Treffer.
                                 </div>
                             </div>
+
+                        <!-- Context menu (right-click) -->
+                        <div 
+                            v-if="contextMenu.show" 
+                            :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
+                            class="fmt-menu fixed z-50 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs w-52 font-mono select-none"
+                        >
+                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1">Markdown Format</div>
+                            <button @click="applyFormat('**')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Fett</span><span class="text-zinc-600 dark:text-zinc-500">**text**</span></button>
+                            <button @click="applyFormat('*')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Kursiv</span><span class="text-zinc-600 dark:text-zinc-500">*text*</span></button>
+                            <button @click="applyFormat('~~')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Durchgestrichen</span><span class="text-zinc-600 dark:text-zinc-500">~~text~~</span></button>
+                            <button @click="applyFormat('`')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between border-b border-zinc-200 dark:border-zinc-800 pb-1.5 mb-1"><span>Code-Snippet</span><span class="text-zinc-600 dark:text-zinc-500">`text`</span></button>
+                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider mb-1">Farben (HTML)</div>
+                            <button @click="applyHtmlColor('#34d399')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-emerald-600 dark:text-emerald-400 flex items-center gap-2"><span class="w-2 h-2 bg-emerald-400 inline-block"></span> Smaragdgrün</button>
+                            <button @click="applyHtmlColor('#f87171')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-red-600 dark:text-red-400 flex items-center gap-2"><span class="w-2 h-2 bg-red-400 inline-block"></span> Rot</button>
+                            <button @click="applyHtmlColor('#fb923c')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-orange-600 dark:text-orange-400 flex items-center gap-2"><span class="w-2 h-2 bg-orange-400 inline-block"></span> Orange</button>
+                            <button @click="applyHtmlColor('#facc15')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-yellow-600 dark:text-yellow-400 flex items-center gap-2"><span class="w-2 h-2 bg-yellow-400 inline-block"></span> Gelb</button>
+                            <button @click="applyHtmlColor('#60a5fa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-blue-600 dark:text-blue-400 flex items-center gap-2"><span class="w-2 h-2 bg-blue-400 inline-block"></span> Blau</button>
+                            <button @click="applyHtmlColor('#a78bfa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-violet-600 dark:text-violet-400 flex items-center gap-2"><span class="w-2 h-2 bg-violet-400 inline-block"></span> Lila</button>
+                            <button @click="applyHtmlColor('#f472b6')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-pink-600 dark:text-pink-400 flex items-center gap-2"><span class="w-2 h-2 bg-pink-400 inline-block"></span> Rosa</button>
+                            <button @click="applyHtmlColor('#a1a1aa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 flex items-center gap-2"><span class="w-2 h-2 bg-zinc-400 dark:bg-zinc-500 inline-block"></span> Grau</button>
+                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-t border-zinc-200 dark:border-zinc-800 mt-1 mb-1">Bild</div>
+                            <button @click="triggerImageUpload" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex items-center gap-2"><span>↑ Bild einfügen</span></button>
+                        </div>
                             </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+                                <input type="text" v-model="newAptTitle" placeholder="Termin..." @keyup.enter="addNewAppointment" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 md:col-span-2">
+                                <input type="date" v-model="newAptStart" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                                <input type="text" inputmode="numeric" v-model="newAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                            </div>
+                            <div class="flex gap-2 mb-2">
+                                <label class="flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-500">
+                                    <input type="checkbox" v-model="newAptHasEnd" class="accent-emerald-600"> Bis-Datum
+                                </label>
+                                <input v-if="newAptHasEnd" type="date" v-model="newAptEnd" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                                <input v-if="newAptHasEnd" type="text" inputmode="numeric" v-model="newAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-1.5 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                                <button @click="addNewAppointment" :disabled="!newAptTitle.trim() || !newAptStart" class="ml-auto bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-3 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
+                            </div>
+                            <div v-if="newNoteAppointments.length > 0" class="space-y-1 max-h-24 overflow-y-auto">
+                                <div v-for="(apt, ai) in newNoteAppointments" :key="ai" class="apt-item min-w-0 flex-wrap">
+                                    <input type="checkbox" v-model="apt.done" class="accent-emerald-600 cursor-pointer shrink-0">
+                                    <span :class="{'line-through text-zinc-400 dark:text-zinc-600 opacity-70': apt.done}" class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
+                                    <span :class="{'line-through text-zinc-400 dark:text-zinc-600': apt.done}" class="flex-1 min-w-0 truncate text-zinc-800 dark:text-zinc-200">{{ apt.title }}</span>
+                                    <button @click="newNoteAppointments.splice(ai, 1)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
+                                </div>
+                            </div>
+                            <div v-else class="text-[10px] text-zinc-400 dark:text-zinc-600 italic">Keine Termine.</div>
                         </div>
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
                             <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">Checklist / Steps</span>
@@ -2497,32 +2550,6 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <!-- Appointments -->
-                    <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
-                        <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
-                        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
-                            <input type="text" v-model="newAptTitle" placeholder="Termin..." @keyup.enter="addNewAppointment" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 md:col-span-2">
-                            <input type="date" v-model="newAptStart" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
-                            <input type="text" inputmode="numeric" v-model="newAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
-                        </div>
-                        <div class="flex gap-2 mb-2">
-                            <label class="flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-500">
-                                <input type="checkbox" v-model="newAptHasEnd" class="accent-emerald-600"> Bis-Datum
-                            </label>
-                            <input v-if="newAptHasEnd" type="date" v-model="newAptEnd" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
-                            <input v-if="newAptHasEnd" type="text" inputmode="numeric" v-model="newAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-1.5 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
-                            <button @click="addNewAppointment" :disabled="!newAptTitle.trim() || !newAptStart" class="ml-auto bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-3 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
-                        </div>
-                        <div v-if="newNoteAppointments.length > 0" class="space-y-1 max-h-24 overflow-y-auto">
-                            <div v-for="(apt, ai) in newNoteAppointments" :key="ai" class="apt-item min-w-0 flex-wrap">
-                                <span class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
-                                <span class="flex-1 min-w-0 truncate text-zinc-800 dark:text-zinc-200">{{ apt.title }}</span>
-                                <button @click="newNoteAppointments.splice(ai, 1)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
-                            </div>
-                        </div>
-                        <div v-else class="text-[10px] text-zinc-400 dark:text-zinc-600 italic">Keine Termine.</div>
-                    </div>
-
                 </div>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center gap-2">
                     <div v-if="draftTs" class="flex items-center gap-2 text-[10px] text-zinc-500 dark:text-zinc-400">
@@ -2541,26 +2568,25 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
         <!-- Detail Modal -->
         <div v-if="isModalOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-50">
-            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl flex flex-col h-[88vh] shadow-2xl" @click.stop>
-                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex items-center gap-2">
-                    <button 
-                        @click="toggleDetailPreview" 
-                        class="shrink-0 bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2.5 py-0.5 font-semibold transition-colors text-[11px] cursor-pointer">
-                        {{ isPreviewMode ? 'Bearbeiten' : 'Vorschau' }}
-                    </button>
-                    <input 
-                        type="text" 
-                        v-model="activeNote.title" 
-                        class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 flex-1 min-w-0 font-bold focus:outline-none focus:border-emerald-500"
-                    >
-                    <button @click="closeModal" class="shrink-0 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Notiz bearbeiten</span>
+                    <button @click="closeModal" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
-
-                <div class="bg-zinc-100/50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 px-3 py-1.5 flex justify-between items-center text-[11px]">
-                    <div class="flex gap-3 items-center flex-wrap">
-                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-                            Status:
-                            <select v-model="activeNote.status" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
+                <div class="p-3 flex flex-col gap-3 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
+                            Titel
+                            <input 
+                                type="text" 
+                                v-model="activeNote.title" 
+                                placeholder="Notiz-Titel..." 
+                                class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                            >
+                        </label>
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                            Status
+                            <select v-model="activeNote.status" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
                                 <option value="backlog">Backlog</option>
                                 <option value="in_progress">In Arbeit</option>
                                 <option value="review">Review</option>
@@ -2568,54 +2594,58 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <option value="archived">Archiv</option>
                             </select>
                         </label>
-                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-                            Prio:
-                            <select v-model="activeNote.priority" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                            Priorität
+                            <select v-model="activeNote.priority" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
                                 <option value="low">Niedrig</option>
                                 <option value="medium">Mittel</option>
                                 <option value="high">Hoch</option>
                             </select>
                         </label>
-                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-                            Fällig:
-                            <input type="date" v-model="activeNote.due_date" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                            Fällig
+                            <input 
+                                type="date" 
+                                v-model="activeNote.due_date" 
+                                class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                            >
                         </label>
-                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400">
-                            Wiederholung:
-                            <select v-model="activeNote.repeat_rule" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 px-1 py-0.5 focus:outline-none">
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                            Wiederholung
+                            <select v-model="activeNote.repeat_rule" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
                                 <option value="">Keine</option>
                                 <option value="daily">Täglich</option>
                                 <option value="weekly">Wöchentlich</option>
                                 <option value="monthly">Monatlich</option>
                             </select>
                         </label>
-                        <label class="flex items-center gap-1 text-zinc-600 dark:text-zinc-400 relative">
-                            Department:
+                        <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
+                            Department
                             <div class="relative">
-                                <div class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-1 py-0.5 flex flex-wrap gap-1 min-h-[22px] items-center focus-within:border-emerald-500 w-48">
+                                <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 px-2 py-1 flex flex-wrap gap-1 min-h-[28px] items-center focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
                                     <span 
                                         v-for="(dept, di) in activeNoteDepartments" 
                                         :key="di"
-                                        class="dept-tag dept-tag-sm">
+                                        class="dept-tag">
                                         {{ dept }}
-                                        <span @click="removeActiveNoteDepartment(di)" class="dept-tag-remove text-[8px]">✕</span>
+                                        <span @click="removeActiveNoteDepartment(di)" class="dept-tag-remove">✕</span>
                                     </span>
                                     <input 
                                         ref="modalDepartmentInputRef"
                                         type="text" 
                                         v-model="modalDeptInput"
-                                        placeholder="Hinzufügen..." 
+                                        placeholder="Department hinzufügen..." 
                                         autocomplete="off"
                                         @focus="openDeptDropdown('modal')"
                                         @input="onDeptInput"
                                         @keydown="handleDeptKeydown"
                                         @blur="closeDeptDropdown"
-                                        class="bg-transparent text-[11px] text-zinc-800 dark:text-zinc-200 flex-1 min-w-[60px] outline-none"
+                                        class="bg-transparent text-xs text-zinc-900 dark:text-zinc-100 flex-1 min-w-[80px] outline-none"
                                     >
                                 </div>
                                 <div 
                                     v-if="deptDropdownOpen && deptDropdownSource === 'modal'"
-                                    class="absolute left-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto w-48"
+                                    class="absolute left-0 right-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto"
                                 >
                                     <button 
                                         v-for="(dep, index) in filteredDepartments" 
@@ -2637,63 +2667,59 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             </div>
                         </label>
                     </div>
-                </div>
 
-                <!-- Content & checklist area -->
-                <div class="flex-1 grid grid-cols-1 md:grid-cols-3 p-3 gap-3 overflow-hidden bg-zinc-100 dark:bg-zinc-950 relative">
-                    <div class="md:col-span-2 h-full flex flex-col relative">
-                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col flex-1 min-h-0">
-                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Inhalt (Markdown)</span>
-                            <textarea 
+                    <div class="flex flex-col gap-1 relative">
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
+                                <div class="flex justify-between items-center mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">
+                                    <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase">Inhalt (Markdown)</span>
+                                    <button @click="toggleDetailPreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ isPreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
+                                </div>
+                                <textarea 
                                 ref="textareaRef"
                                 v-if="!isPreviewMode"
                                 v-model="activeNote.content" 
+                                placeholder="Inhalt schreiben... ([[ Für Notiz-Links) (Rechtsklick für Formatierung)" 
                                 @contextmenu.prevent="openContextMenu"
                                 @input="handleAutocomplete"
                                 @keyup="updateAutocompletePos"
                                 @click="updateAutocompletePos"
                                 @keydown="handleAutocompleteKeydown"
                                 @paste="onEditorPaste($event, 'edit')"
-                                placeholder="Inhalt mit Markdown schreiben... (Rechtsklick für Text-Formatierung)"
-                                class="w-full flex-1 min-h-0 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 p-2.5 text-xs font-mono resize-none focus:outline-none focus:border-zinc-400 dark:border-zinc-600"
-                            ></textarea>
-                            <!-- Invisible caret mirror for computing cursor coordinates -->
-                            <div ref="caretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
-                            <div 
-                                 v-if="isPreviewMode" 
-                                 class="markdown-body w-full flex-1 min-h-0 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 p-2.5 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
-                                 v-html="renderedMarkdown"
-                                 @click.prevent="onPreviewClick"
-                                 @mousemove="showContactPopover"
-                                 @mouseleave="hideContactPopover">
-                            </div>
-
-                        <!-- Autocomplete dropdown for [[ links -->
-                        <div 
-                            v-if="showAutocomplete"
-                            :style="{ top: autocompletePos.y + 'px', left: autocompletePos.x + 'px' }"
-                            class="autocomplete-dropdown bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
-                        >
-                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
-                                <span>Notiz verlinken</span>
-                                <span class="text-zinc-400 dark:text-zinc-600">↑↓ Enter Esc</span>
-                            </div>
-                            <button 
-                                v-for="(result, index) in autocompleteResults" 
-                                :key="result.id"
-                                @click="selectAutocomplete(index)"
-                                @mousedown.prevent
-                                class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
-                                :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === autocompleteIndex }"
+                                class="w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                                ></textarea>
+                                <div 
+                                     v-if="isPreviewMode" 
+                                     class="markdown-body w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                     v-html="renderedMarkdown"
+                                     @click.prevent="onPreviewClick"
+                                     @mousemove="showContactPopover"
+                                     @mouseleave="hideContactPopover">
+                                </div>
+                                <div ref="caretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
+                                <div 
+                                v-if="showAutocomplete"
+                                :style="{ top: autocompletePos.y + 'px', left: autocompletePos.x + 'px' }"
+                                class="autocomplete-dropdown bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
                             >
-                                <span class="truncate">{{ result.title }}</span>
-                                <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
-                            </button>
-                            <div v-if="autocompleteResults.length === 0" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
-                                Keine Treffer.
+                                <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
+                                    <span>Notiz verlinken</span>
+                                    <span class="text-zinc-400 dark:text-zinc-600">↑↓ Enter Esc</span>
+                                </div>
+                                <button 
+                                    v-for="(result, index) in autocompleteResults" 
+                                    :key="result.id"
+                                    @click="selectAutocomplete(index)"
+                                    @mousedown.prevent
+                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
+                                    :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === autocompleteIndex }"
+                                >
+                                    <span class="truncate">{{ result.title }}</span>
+                                    <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
+                                </button>
+                                <div v-if="autocompleteResults.length === 0" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
+                                    Keine Treffer.
+                                </div>
                             </div>
-                        </div>
-                        </div>
 
                         <!-- Context menu (right-click) -->
                         <div 
@@ -2715,6 +2741,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             <button @click="applyHtmlColor('#a78bfa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-violet-600 dark:text-violet-400 flex items-center gap-2"><span class="w-2 h-2 bg-violet-400 inline-block"></span> Lila</button>
                             <button @click="applyHtmlColor('#f472b6')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-pink-600 dark:text-pink-400 flex items-center gap-2"><span class="w-2 h-2 bg-pink-400 inline-block"></span> Rosa</button>
                             <button @click="applyHtmlColor('#a1a1aa')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 flex items-center gap-2"><span class="w-2 h-2 bg-zinc-400 dark:bg-zinc-500 inline-block"></span> Grau</button>
+                            <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-t border-zinc-200 dark:border-zinc-800 mt-1 mb-1">Bild</div>
+                            <button @click="triggerImageUpload" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex items-center gap-2"><span>↑ Bild einfügen</span></button>
                         </div>
 
                         <!-- Contact hover popover -->
@@ -2734,24 +2762,48 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <div v-if="contactPopover.contact.description" class="text-[10px] italic break-all mt-0.5">{{ contactPopover.contact.description }}</div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- Steps / checklist + appointments -->
-                    <div class="flex flex-col gap-3 overflow-y-auto pr-1">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
+                                <input type="text" v-model="modalAptTitle" placeholder="Termin..." @keyup.enter="addModalAppointment" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 md:col-span-2">
+                                <input type="date" v-model="modalAptStart" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                                <input type="text" inputmode="numeric" v-model="modalAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                            </div>
+                            <div class="flex gap-2 mb-2">
+                                <label class="flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-500">
+                                    <input type="checkbox" v-model="modalAptHasEnd" class="accent-emerald-600"> Bis-Datum
+                                </label>
+                                <input v-if="modalAptHasEnd" type="date" v-model="modalAptEnd" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                                <input v-if="modalAptHasEnd" type="text" inputmode="numeric" v-model="modalAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-1.5 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500">
+                                <button @click="addModalAppointment" :disabled="!modalAptTitle.trim() || !modalAptStart" class="ml-auto bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-3 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
+                            </div>
+                            <div v-if="activeNoteAppointments.length > 0" class="space-y-1 max-h-24 overflow-y-auto">
+                                <div v-for="(apt, ai) in activeNoteAppointments" :key="ai" class="apt-item min-w-0 flex-wrap">
+                                    <input type="checkbox" v-model="apt.done" class="accent-emerald-600 cursor-pointer shrink-0">
+                                    <span :class="{'line-through text-zinc-400 dark:text-zinc-600 opacity-70': apt.done}" class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
+                                    <span :class="{'line-through text-zinc-400 dark:text-zinc-600': apt.done}" class="flex-1 min-w-0 truncate text-zinc-800 dark:text-zinc-200">{{ apt.title }}</span>
+                                    <button @click="activeNoteAppointments.splice(ai, 1)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
+                                </div>
+                            </div>
+                            <div v-else class="text-[10px] text-zinc-400 dark:text-zinc-600 italic">Keine Termine.</div>
+                        </div>
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
-                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Checklist / Steps</span>
+                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">Checklist / Steps</span>
                             <div class="flex gap-1 mb-2">
                                 <input 
                                     type="text" 
                                     v-model="newStepText" 
                                     @keyup.enter="addStep"
                                     placeholder="Neuer Step..." 
-                                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 w-full focus:outline-none focus:border-emerald-500"
+                                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 w-full focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                                 >
-                                <button @click="addStep" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer">+</button>
+                                <button @click="addStep" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer shrink-0">+</button>
                             </div>
-                            <div class="space-y-1.5 pr-1 max-h-40 overflow-y-auto" @dragover.prevent @drop.prevent.stop="stepDrop($event, activeChecklist)">
-                                <div v-if="activeChecklist.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">Keine Zwischensteps vorhanden.</div>
+                            <div class="overflow-y-auto space-y-1.5 pr-1 h-28 shrink-0" @dragover.prevent @drop.prevent.stop="stepDrop($event, activeChecklist)">
+                                <div v-if="activeChecklist.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-2">Keine Zwischensteps.</div>
                                 <div v-for="(step, index) in activeChecklist" :key="index" draggable="true" @dragstart="stepDragStart(index)" class="step-row cursor-grab active:cursor-grabbing flex items-center justify-between bg-zinc-100 dark:bg-zinc-950 border border-zinc-200/80 dark:border-zinc-800/80 px-2 py-1 gap-2">
                                     <span class="text-zinc-400 dark:text-zinc-600 select-none shrink-0">⠿</span>
                                     <label class="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer overflow-hidden flex-1 min-w-0">
@@ -2762,38 +2814,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 </div>
                             </div>
                         </div>
-
-                        <!-- Appointments in modal -->
-                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
-                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
-                            <div class="flex flex-col gap-1 mb-2">
-                                <input type="text" v-model="modalAptTitle" placeholder="Termin..." @keyup.enter="addModalAppointment" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-900 dark:text-zinc-100 w-full focus:outline-none focus:border-emerald-500">
-                                <div class="flex gap-1">
-                                    <input type="date" v-model="modalAptStart" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 flex-1 focus:outline-none focus:border-emerald-500">
-                                    <input type="text" inputmode="numeric" v-model="modalAptTime" placeholder="14:30" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Uhrzeit im 24h-Format (z.B. 14:30)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 w-20 focus:outline-none focus:border-emerald-500">
-                                </div>
-                                <label class="flex items-center gap-1 text-[10px] text-zinc-600 dark:text-zinc-500">
-                                    <input type="checkbox" v-model="modalAptHasEnd" class="accent-emerald-600"> Bis-Datum
-                                </label>
-                                <div v-if="modalAptHasEnd" class="flex gap-1">
-                                    <input type="date" v-model="modalAptEnd" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-emerald-500 flex-1">
-                                    <input type="text" inputmode="numeric" v-model="modalAptEndTime" placeholder="16:00" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Endzeit im 24h-Format (z.B. 16:00)" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-0.5 text-[11px] text-zinc-800 dark:text-zinc-200 w-20 focus:outline-none focus:border-emerald-500">
-                                </div>
-                                <button @click="addModalAppointment" :disabled="!modalAptTitle.trim() || !modalAptStart" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-1 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">+ Hinzufügen</button>
-                            </div>
-                            <div class="space-y-1 pr-1">
-                                <div v-if="activeNoteAppointments.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-2">Keine Termine.</div>
-                                <div v-for="(apt, ai) in activeNoteAppointments" :key="ai" class="apt-item min-w-0 flex-wrap">
-                                <span class="text-zinc-600 dark:text-zinc-400 font-mono text-[10px] shrink-0 whitespace-nowrap">{{ fmtDate(apt.start) }}{{ apt.time ? ' ' + apt.time : '' }}{{ apt.end ? ' – ' + fmtDate(apt.end) + (apt.endTime ? ' ' + apt.endTime : '') : '' }}</span>
-                                    <span class="flex-1 min-w-0 truncate text-zinc-800 dark:text-zinc-200">{{ apt.title }}</span>
-                                    <button @click="activeNoteAppointments.splice(ai, 1)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] font-mono shrink-0">[x]</button>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
-
-                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-end gap-2">
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center gap-2">
+                    <div></div>
                     <button 
                         @click="saveActiveNote" 
                         class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer">
@@ -2852,6 +2876,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const draftTs = ref(null)
                 const draftRestored = ref(false)
                 const newNoteTitleInputRef = ref(null)
+                const imageUploadInputRef = ref(null)
                 const newNoteTextareaRef = ref(null)
                 const newNoteCaretMirrorRef = ref(null)
                 const newNoteStepInputRef = ref(null)
@@ -2988,6 +3013,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     show: false,
                     x: 0,
                     y: 0,
+                    source: 'edit',
                     selectionStart: 0,
                     selectionEnd: 0
                 })
@@ -3170,7 +3196,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     notes.value.forEach(note => {
                         if (note.status === 'archived') return
                         getAppointments(note).forEach(apt => {
-                            if (!apt.start) return
+                            if (apt.done || !apt.start) return
                             if (apt.start >= today) {
                                 const isOverdueApt = apt.start < today
                                 list.push({
@@ -3858,15 +3884,17 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 // Context menu logic
                 const openContextMenu = (e) => {
-                    if (!textareaRef.value) return
+                    const ta = e.target
+                    if (!ta || ta.tagName !== 'TEXTAREA') return
                     const cx = e.clientX
                     const cy = e.clientY
                     contextMenu.value = {
                         show: true,
                         x: cx,
                         y: cy,
-                        selectionStart: textareaRef.value.selectionStart,
-                        selectionEnd: textareaRef.value.selectionEnd
+                        source: ta === newNoteTextareaRef.value ? 'new' : 'edit',
+                        selectionStart: ta.selectionStart,
+                        selectionEnd: ta.selectionEnd
                     }
                     nextTick(() => {
                         const menu = document.querySelector('.fmt-menu')
@@ -4258,8 +4286,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 // --- Overdue appointment reminder (Feature 3) ---
                 const reminderOpen = ref(false)
                 const overdueReminders = ref([])
-                const isAppointmentOverdue = (apt) => {
-                    if (!apt.start) return false
+const isAppointmentOverdue = (apt) => {
+                     if (!apt || apt.done) return false
+                     if (!apt.start) return false
                     const todayStr = dateStr(new Date())
                     const nowH = new Date()
                     const nowMin = nowH.getHours() * 60 + nowH.getMinutes()
@@ -4299,7 +4328,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     notes.value.forEach(note => {
                         if (note.status === 'archived' || note.status === 'done') return
                         const appts = getAppointments(note)
-                        appts.forEach(apt => {
+                        appts.forEach((apt, ai) => {
                             if (isAppointmentOverdue(apt)) {
                                 const ev = {
                                     title: `${note.title} – ${apt.title || 'Termin'}`,
@@ -4311,6 +4340,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 list.push({
                                     note,
                                     apt,
+                                    aptIdx: ai,
                                     kind: 'apt',
                                     range: fmtAptRange(ev)
                                 })
@@ -4350,6 +4380,33 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     openModal(r.note)
                     overdueReminders.value.splice(ri, 1)
                     if (overdueReminders.value.length === 0) reminderOpen.value = false
+                }
+
+                const markApptDone = async (note, aptIndex, done) => {
+                    if (!note) return
+                    const appts = getAppointments(note)
+                    if (aptIndex == null || aptIndex < 0 || aptIndex >= appts.length) return
+                    appts[aptIndex].done = !!done
+                    try {
+                        const res = await fetch(`/api/notes/${note.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ appointments: JSON.stringify(appts) })
+                        })
+                        if (res.ok) {
+                            const idx = notes.value.findIndex(n => n.id === note.id)
+                            if (idx !== -1) notes.value[idx] = { ...notes.value[idx], appointments: JSON.stringify(appts) }
+                            collectOverdueReminders({ skipNotify: true })
+                        }
+                    } catch (e) {
+                        console.error('Fehler beim Aktualisieren des Termins', e)
+                    }
+                }
+
+                const completeReminderAppointment = async (ri) => {
+                    const r = overdueReminders.value[ri]
+                    if (!r || r.kind !== 'apt') return
+                    await markApptDone(r.note, r.aptIdx, true)
                 }
 
                 let startupChecksDone = false
@@ -4564,30 +4621,44 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }))
                 }
 
+                const menuContentText = () => contextMenu.value.source === 'new'
+                    ? (newNoteContent.value || '')
+                    : (activeNote.value ? (activeNote.value.content || '') : '')
+                const setMenuContentText = (v) => {
+                    if (contextMenu.value.source === 'new') newNoteContent.value = v
+                    else if (activeNote.value) activeNote.value.content = v
+                }
+                const menuTextareaEl = () => contextMenu.value.source === 'new' ? newNoteTextareaRef.value : textareaRef.value
+                const focusMenuTextarea = (start, len) => {
+                    nextTick(() => {
+                        const ta = menuTextareaEl()
+                        if (!ta) return
+                        ta.focus()
+                        ta.setSelectionRange(start, start + len)
+                    })
+                }
+
                 const applyFormat = (syntax) => {
-                    if (!activeNote.value) return
                     const start = contextMenu.value.selectionStart
                     const end = contextMenu.value.selectionEnd
-                    const text = activeNote.value.content
-                    
+                    const text = menuContentText()
                     const selectedText = text.substring(start, end)
                     const replacement = `${syntax}${selectedText || 'Text'}${syntax}`
-                    
-                    activeNote.value.content = text.substring(0, start) + replacement + text.substring(end)
+                    setMenuContentText(text.substring(0, start) + replacement + text.substring(end))
                     closeContextMenu()
+                    focusMenuTextarea(start + syntax.length, (selectedText || 'Text').length)
                 }
 
                 const applyHtmlColor = (colorHex) => {
-                    if (!activeNote.value) return
                     const start = contextMenu.value.selectionStart
                     const end = contextMenu.value.selectionEnd
-                    const text = activeNote.value.content
-                    
+                    const text = menuContentText()
                     const selectedText = text.substring(start, end)
-                    const replacement = `<span style="color: ${colorHex}">${selectedText || 'Text'}</span>`
-                    
-                    activeNote.value.content = text.substring(0, start) + replacement + text.substring(end)
+                    const openTag = `<span style="color: ${colorHex}">`
+                    const replacement = `${openTag}${selectedText || 'Text'}</span>`
+                    setMenuContentText(text.substring(0, start) + replacement + text.substring(end))
                     closeContextMenu()
+                    focusMenuTextarea(start + openTag.length, (selectedText || 'Text').length)
                 }
 
                 const addStep = () => {
@@ -4778,19 +4849,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     })
                 }
 
-                const onEditorPaste = async (e, which) => {
-                    const ta = which === 'new' ? newNoteTextareaRef.value : textareaRef.value
-                    if (!ta) return
-                    const items = (e.clipboardData && e.clipboardData.items) || []
-                    let file = null
-                    for (const item of items) {
-                        if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
-                            file = item.getAsFile()
-                            break
-                        }
-                    }
-                    if (!file) return
-                    e.preventDefault()
+                const insertImageFile = async (file, which, start, end) => {
+                    if (!file || !file.type || !file.type.startsWith('image/')) return
                     let markdownImage
                     try {
                         const dataUrl = await resizePastedImage(file, 1200)
@@ -4799,16 +4859,43 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         console.error('Fehler beim Bild-Einfügen', err)
                         return
                     }
-                    const start = ta.selectionStart
-                    const end = ta.selectionEnd
-                    const cur = which === 'new' ? (newNoteContent.value || '') : (activeNote.value ? activeNote.value.content : '')
+                    const cur = which === 'new' ? (newNoteContent.value || '') : (activeNote.value ? (activeNote.value.content || '') : '')
                     const next = cur.substring(0, start) + markdownImage + cur.substring(end)
                     if (which === 'new') newNoteContent.value = next
                     else if (activeNote.value) activeNote.value.content = next
+                    closeContextMenu()
                     await nextTick()
+                    const ta = which === 'new' ? newNoteTextareaRef.value : textareaRef.value
+                    if (!ta) return
                     ta.focus()
                     const pos = start + markdownImage.length
                     ta.setSelectionRange(pos, pos)
+                }
+
+                const onEditorPaste = async (e, which) => {
+                    const ta = which === 'new' ? newNoteTextareaRef.value : textareaRef.value
+                    if (!ta) return
+                    const items = (e.clipboardData && e.clipboardData.items) || []
+                    for (const item of items) {
+                        if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+                            const file = item.getAsFile()
+                            if (!file) return
+                            e.preventDefault()
+                            await insertImageFile(file, which, ta.selectionStart, ta.selectionEnd)
+                            return
+                        }
+                    }
+                }
+
+                const triggerImageUpload = () => {
+                    if (imageUploadInputRef.value) imageUploadInputRef.value.click()
+                }
+
+                const onImageFileSelected = async (e) => {
+                    const file = e.target.files && e.target.files[0]
+                    e.target.value = ''
+                    if (!file) return
+                    await insertImageFile(file, contextMenu.value.source, contextMenu.value.selectionStart, contextMenu.value.selectionEnd)
                 }
 
                 const saveActiveNote = async () => {
@@ -4841,6 +4928,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 notes.value[index] = { ...activeNote.value, content: serializedContent, departments: JSON.stringify(activeNoteDepartments.value), appointments: JSON.stringify(activeNoteAppointments.value) }
                             }
                             fetchDepartments()
+                            collectOverdueReminders({ skipNotify: true })
                             closeModal()
                         }
                     } catch (e) {
@@ -5110,7 +5198,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         if (note.status === 'archived') return
                         const appts = getAppointments(note)
                         appts.forEach(apt => {
-                            if (!apt.start) return
+                            if (apt.done || !apt.start) return
                             if (apt.start === ds || (apt.end >= ds && apt.start <= ds)) {
                                 const overdue = apt.start < ds && !apt.end
                                 events.push({
@@ -5472,6 +5560,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     reminderOpen,
                     overdueReminders,
                     openNoteFromReminder,
+                    completeReminderAppointment,
                     timerOpen,
                     timerTotal,
                     timerRemaining,
@@ -5533,6 +5622,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     newNoteRenderedMarkdown,
                     onNewNotePreviewClick,
                     onEditorPaste,
+                    triggerImageUpload,
+                    onImageFileSelected,
+                    imageUploadInputRef,
                     activeNote,
                     activeChecklist,
                     newStepText,
