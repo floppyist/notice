@@ -2323,13 +2323,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         <input ref="imageUploadInputRef" type="file" accept="image/*" class="hidden" @change="onImageFileSelected">
 
         <!-- New note form -->
-        <div v-if="isNewNoteOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @keydown.enter="handleNewNoteEnter">
-            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl" @click.stop>
+        <div v-if="isNewNoteOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-2 z-40" @keydown.enter="handleNewNoteEnter">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-full flex flex-col shadow-2xl" :class="{ 'h-full': newNoteMarkdownMax }" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Neue Notiz</span>
                     <button @click="closeNewNote" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
-                <div class="p-3 flex flex-col gap-3 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
+                <div class="p-3 flex-1 min-h-0 flex flex-col gap-2 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
                             Titel
@@ -2424,11 +2424,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </label>
                     </div>
 
-                    <div class="flex flex-col gap-1 relative">
-                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
+                    <div class="flex flex-col gap-1 relative" :class="{ 'flex-1 min-h-0': newNoteMarkdownMax }">
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col" :class="{ 'flex-1 min-h-0': newNoteMarkdownMax }">
                                 <div class="flex justify-between items-center mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">
                                     <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase">Inhalt (Markdown)</span>
-                                    <button @click="toggleNewNotePreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ newNotePreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
+                                    <span class="flex items-center gap-1 shrink-0">
+                                        <button @click="newNoteMarkdownMax = !newNoteMarkdownMax" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ newNoteMarkdownMax ? '⤡ Verkleinern' : '⤢ Maximieren' }}</button>
+                                        <button @click="toggleNewNotePreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ newNotePreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
+                                    </span>
                                 </div>
                                 <textarea 
                                 ref="newNoteTextareaRef"
@@ -2441,11 +2444,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 @click="updateAutocompletePos"
                                 @keydown="handleAutocompleteKeydown"
                                 @paste="onEditorPaste($event, 'new')"
-                                class="w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                                class="w-full bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                                :class="newNoteMarkdownMax ? 'flex-1 min-h-0' : 'h-52'"
                                 ></textarea>
                                 <div 
                                      v-if="newNotePreviewMode" 
-                                     class="markdown-body w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                     class="markdown-body w-full bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                     :class="newNoteMarkdownMax ? 'flex-1 min-h-0' : 'h-52'"
                                      v-html="newNoteRenderedMarkdown"
                                      @click.prevent="onNewNotePreviewClick">
                                 </div>
@@ -2500,7 +2505,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                             </div>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3" v-if="!newNoteMarkdownMax">
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
                             <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
                             <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
@@ -2567,13 +2572,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- Detail Modal -->
-        <div v-if="isModalOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-50">
-            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl" @click.stop>
+        <div v-if="isModalOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-2 z-50">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-full flex flex-col shadow-2xl" :class="{ 'h-full': detailMarkdownMax }" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Notiz bearbeiten</span>
                     <button @click="closeModal" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
-                <div class="p-3 flex flex-col gap-3 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
+                <div class="p-3 flex-1 min-h-0 flex flex-col gap-2 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
                             Titel
@@ -2668,11 +2673,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </label>
                     </div>
 
-                    <div class="flex flex-col gap-1 relative">
-                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col">
+                    <div class="flex flex-col gap-1 relative" :class="{ 'flex-1 min-h-0': detailMarkdownMax }">
+                            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col" :class="{ 'flex-1 min-h-0': detailMarkdownMax }">
                                 <div class="flex justify-between items-center mb-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">
                                     <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase">Inhalt (Markdown)</span>
-                                    <button @click="toggleDetailPreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ isPreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
+                                    <span class="flex items-center gap-1 shrink-0">
+                                        <button @click="detailMarkdownMax = !detailMarkdownMax" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ detailMarkdownMax ? '⤡ Verkleinern' : '⤢ Maximieren' }}</button>
+                                        <button @click="toggleDetailPreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">{{ isPreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
+                                    </span>
                                 </div>
                                 <textarea 
                                 ref="textareaRef"
@@ -2685,11 +2693,13 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 @click="updateAutocompletePos"
                                 @keydown="handleAutocompleteKeydown"
                                 @paste="onEditorPaste($event, 'edit')"
-                                class="w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                                class="w-full bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                                :class="detailMarkdownMax ? 'flex-1 min-h-0' : 'h-52'"
                                 ></textarea>
                                 <div 
                                      v-if="isPreviewMode" 
-                                     class="markdown-body w-full h-52 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                     class="markdown-body w-full bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                     :class="detailMarkdownMax ? 'flex-1 min-h-0' : 'h-52'"
                                      v-html="renderedMarkdown"
                                      @click.prevent="onPreviewClick"
                                      @mousemove="showContactPopover"
@@ -2764,7 +2774,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         </div>
                             </div>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3" v-if="!detailMarkdownMax">
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
                             <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Termine</span>
                             <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-2">
@@ -2894,6 +2904,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const isModalOpen = ref(false)
                 const isPreviewMode = ref(false)
                 const newNotePreviewMode = ref(false)
+                const newNoteMarkdownMax = ref(false)
+                const detailMarkdownMax = ref(false)
                 const activeNote = ref(null)
                 const activeChecklist = ref([])
                 const newStepText = ref('')
@@ -3557,6 +3569,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 const openNewNote = () => {
                     isNewNoteOpen.value = true
+                    newNoteMarkdownMax.value = false
                     try {
                         const d = JSON.parse(localStorage['notice-draft'] || 'null')
                         if (d && d.ts && (d.title || d.content || (d.checklist || []).length || (d.appointments || []).length)) {
@@ -3864,6 +3877,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     activeNoteAppointments.value = getAppointments(note)
                     modalDeptInput.value = ''
                     isPreviewMode.value = true
+                    detailMarkdownMax.value = false
                     isModalOpen.value = true
                     closeContextMenu()
                 }
@@ -5617,7 +5631,9 @@ const isAppointmentOverdue = (apt) => {
                     isModalOpen,
                     isPreviewMode,
                     toggleDetailPreview,
+                    detailMarkdownMax,
                     newNotePreviewMode,
+                    newNoteMarkdownMax,
                     toggleNewNotePreview,
                     newNoteRenderedMarkdown,
                     onNewNotePreviewClick,
