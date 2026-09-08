@@ -1,5 +1,5 @@
 <p align="center">
-  <b><span style="color:#34d399">■</span> NOTICE_V1.4</b> — <i>Pro Kanban Notes</i>
+  <b><span style="color:#34d399">■</span> NOTICE_V1.5</b> — <i>Pro Kanban Notes</i>
 </p>
 
 <p align="center">
@@ -48,6 +48,13 @@ Several views can be switched via the header bar (`DASHBOARD` / `BOARD` / `KALEN
 - **New-note form** (`Alt+N`): title, status, priority, due date, content (Markdown), **checklist/steps** and **appointments**.
 - **Detail modal** (double-click): all fields incl. **departments** and **appointments**, with an **edit/preview toggle**.
 - **Markdown** for the content, incl. **supported HTML colors** and **cross-linked notes**: `[[Title|Display name]]` links other notes (with autocomplete), `{{Name|Alias}}` links **contacts** from the address book (with autocomplete). Clicking a note link opens that note; clicking an address link jumps to the address book and highlights the contact.
+- **Markdown sanitization (V1.5)**: the rendered preview strips `<script>`, event handlers (`on*`), `javascript:`-URLs and other unsafe tags/attributes, so pasted HTML cannot execute code. Safe formatting (headings, tables, `hr`, images) is preserved.
+- **Centered blocks (V1.5)**: wrap Markdown in `:::center` / `:::` to render it centered (e.g. `:::center\n**Mittig**\n:::`).
+- **Image paste (V1.5)**: paste an image from the clipboard into a content editor – it is resized (max. 1200 px), converted to JPEG and embedded as `![Bild](data:image/…)` Markdown.
+- **Preview in the NEW-note form (V1.5)**: like the detail modal, the new-note dialog has a `Vorschau`/`Bearbeiten` toggle.
+- **Trash auto-purge (V1.5)**: in the settings you can auto-delete trash entries older than N days on startup, or run it immediately ("JETZT AUFRÄUMEN").
+- **Import preview (V1.5)**: before importing a backup, a preview modal shows the file name, mode (`Ersetzen`/`Zusammenführen`), counts of contained notes/contacts and the note titles – confirm with `Importieren` or decline with `Abbrechen`.
+- **Undo (V1.5)**: destructive actions (create, duplicate, archive, delete, board drag & drop) offer a `Rückgängig` snackbar for ~10 seconds to revert the last action.
 - **Dashboard** statistics overview (default view): today's tasks, overdue, upcoming appointments, status/priority distribution, completed activity chart, to-do progress and activity by department.
 - **Address book** (`contacts.db`): full CRUD for contacts (name, department, phone, e-mail, description), searchable, department autocomplete reuses existing departments, seeded with sample contacts on first start.
 - **Departments**: optional per note, freely creatable, **autocomplete** (most frequent first, case-insensitive deduplication). On cards the departments render as **inline wrapping badges** (single line, no emoji).
@@ -203,6 +210,7 @@ Table `notes`:
 | `appointments` | TEXT | JSON array of appointments |
 | `sort_order` | INTEGER | Sort order within a column |
 | `completed_at` | TEXT | Date (YYYY-MM-DD) the note was moved to `done`/`archived` (null when active) |
+| `deleted_at` | TEXT | Timestamp (`YYYY-MM-DD HH:MM:SS`) when the note was soft-deleted; basis for the trash and its auto-purge |
 
 Table `contacts` (in `contacts.db`):
 

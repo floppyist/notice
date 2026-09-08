@@ -130,6 +130,11 @@ struct SearchQuery {
     q: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct PurgePayload {
+    days: i64,
+}
+
 // Create a consistent snapshot of a database into backups/ using VACUUM INTO,
 // keeping a rolling window of 10 snapshots per database.
 // Advance a YYYY-MM-DD date to its next occurrence for a repeat rule.
@@ -379,6 +384,7 @@ async fn main() {
         .route("/api/import", post(import_data))
         .route("/api/trash", get(get_trash))
         .route("/api/trash/clear", post(clear_trash))
+        .route("/api/trash/purge", post(purge_trash))
         .route("/api/contacts", get(get_contacts).post(create_contact))
         .route("/api/contacts/search", get(search_contacts))
         .route("/api/contacts/:id", put(update_contact).delete(delete_contact))
@@ -718,6 +724,32 @@ async fn clear_trash(State(state): State<AppState>) -> impl IntoResponse {
     let contacts_res = sqlx::query("DELETE FROM contacts WHERE deleted_at IS NOT NULL")
         .execute(&state.db)
         .await;
+    if notes_res.is_ok() && contacts_res.is_ok() {
+        StatusCode::OK.into_response()
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    }
+}
+
+async fn purge_trash(
+    State(state): State<AppState>,
+    Json(payload): Json<PurgePayload>,
+) -> impl IntoResponse {
+    let days = payload.days.max(0);
+    let cutoff = chrono::Local::now() - chrono::Duration::days(days);
+    let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
+    let notes_res = sqlx::query(
+        "DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    )
+    .bind(&cutoff_str)
+    .execute(&state.pool)
+    .await;
+    let contacts_res = sqlx::query(
+        "DELETE FROM contacts WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+    )
+    .bind(&cutoff_str)
+    .execute(&state.db)
+    .await;
     if notes_res.is_ok() && contacts_res.is_ok() {
         StatusCode::OK.into_response()
     } else {
@@ -1349,6 +1381,14 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         .markdown-body code { background: var(--code-bg); color: var(--text); padding: 0.1rem 0.2rem; font-size: 0.8em; }
         /* User-defined colors for markdown HTML output */
         .markdown-body span[style*="color"] { opacity: 0.9; }
+        .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 0.8rem 0; }
+        .markdown-body table { border-collapse: collapse; width: 100%; margin: 0.6rem 0; font-size: 0.75rem; }
+        .markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 0.3rem 0.5rem; text-align: left; }
+        .markdown-body th { background: var(--code-bg); font-weight: bold; }
+        .markdown-body img { max-width: 100%; height: auto; border-radius: 4px; margin: 0.4rem 0; }
+        .markdown-body p:has(> img:only-child) { text-align: center; }
+        .markdown-body .md-center { text-align: center; }
+        .markdown-body .md-center img { margin-left: auto; margin-right: auto; }
         .note-link { color: var(--green); text-decoration: underline; cursor: pointer; }
         .address-link { color: var(--violet-bright, #8b5cf6); text-decoration: underline; cursor: pointer; }
         .address-link:hover { background: rgba(139, 92, 246, 0.12); }
@@ -1433,7 +1473,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
     <div id="app" class="h-screen flex flex-col">
         <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-4">
             <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
-                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.4
+                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.5
             </h1>
 
             <div class="flex gap-1 shrink-0 flex-wrap justify-center">
@@ -2122,6 +2162,52 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         </main>
 
         <!-- Settings modal -->
+        <!-- Import preview -->
+        <div v-if="pendingImport" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-50" @click.self="cancelImport">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-lg flex flex-col shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
+                    <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Import-Vorschau</span>
+                    <button @click="cancelImport" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                </div>
+                <div class="p-3 flex flex-col gap-2 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto max-h-96">
+                    <p class="text-[11px] text-zinc-700 dark:text-zinc-300">
+                        Datei: <span class="font-bold">{{ pendingImport.fileName }}</span>
+                    </p>
+                    <p class="text-[11px] text-zinc-600 dark:text-zinc-400">
+                        Modus: <span class="font-bold">{{ pendingImport.mode === 'replace' ? 'Ersetzen' : 'Zusammenführen' }}</span>
+                    </p>
+                    <div class="grid grid-cols-2 gap-2 text-[11px]">
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2">
+                            <span class="font-bold text-emerald-600 dark:text-emerald-400">{{ pendingImport.notes.length }}</span> Notizen
+                        </div>
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2">
+                            <span class="font-bold text-violet-600 dark:text-violet-400">{{ pendingImport.contacts.length }}</span> Kontakte
+                        </div>
+                    </div>
+                    <div v-if="pendingImport.mode === 'replace'" class="bg-red-950/10 border border-red-900/30 p-2 text-[10px] text-red-700 dark:text-red-400">
+                        Achtung: Beim Ersetzen werden {{ existingCount }} vorhandene Notizen und {{ existingContactCount }} vorhandene Kontakte gelöscht und durch die Import-Datei ersetzt.
+                    </div>
+                    <div v-if="pendingImport.notes.length > 0">
+                        <p class="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider mb-1">Enthaltene Notizen</p>
+                        <div class="flex flex-wrap gap-1 max-h-32 overflow-y-auto pr-1">
+                            <span v-for="(n, ni) in pendingImport.notes.slice(0, 40)" :key="ni" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-700 dark:text-zinc-300 truncate">{{ n.title || '(ohne Titel)' }}</span>
+                            <span v-if="pendingImport.notes.length > 40" class="text-[10px] text-zinc-400 italic self-center">+ {{ pendingImport.notes.length - 40 }} weitere</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-end gap-2">
+                    <button @click="cancelImport" class="px-3 py-1 text-xs border border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900 cursor-pointer">Abbrechen</button>
+                    <button @click="confirmImport" class="px-3 py-1 text-xs border border-emerald-600 bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 font-semibold cursor-pointer">Importieren</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Undo snackbar -->
+        <div v-if="undoActive" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 bg-zinc-800 dark:bg-zinc-700 border border-zinc-600 dark:border-zinc-600 px-4 py-2 shadow-2xl">
+            <span class="text-[11px] text-zinc-100">{{ undoSlot.msg }}</span>
+            <button @click="performUndo" class="text-[11px] font-bold text-emerald-400 hover:text-emerald-300 underline cursor-pointer uppercase">Rückgängig</button>
+        </div>
+
         <div v-if="isSettingsOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-40" @click.stop="isSettingsOpen = false">
             <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-md flex flex-col shadow-2xl" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
@@ -2147,6 +2233,26 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             Beim Start der App werden ab dem {{ autoArchiveDay }}. des Monats alle Notizen mit Status "Abgeschlossen" ins Archiv verschoben.
                         </p>
                     </div>
+                    <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col gap-2">
+                        <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-1 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Papierkorb-Autolöschung</span>
+                        <label class="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                            <input type="checkbox" v-model="trashPurgeEnabled" class="accent-emerald-600 cursor-pointer">
+                            Papierkorb nach Tagen automatisch leeren
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[11px] text-zinc-600 dark:text-zinc-400">Löschen nach:</span>
+                            <input 
+                                type="number" min="1" max="365"
+                                v-model.number="trashPurgeDay"
+                                :disabled="!trashPurgeEnabled"
+                                class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-800 dark:text-zinc-200 w-16 focus:outline-none focus:border-emerald-500 disabled:opacity-40">
+                            <span class="text-[11px] text-zinc-600 dark:text-zinc-400">Tagen</span>
+                        </div>
+                        <p class="text-[9px] text-zinc-400 dark:text-zinc-600 leading-tight" v-if="trashPurgeEnabled">
+                            Beim Start der App werden gelöschte Notizen und Kontakte, die länger als {{ trashPurgeDay }} Tage im Papierkorb liegen, endgültig entfernt.
+                        </p>
+                    </div>
+                    <button @click="runTrashPurgeNow" class="bg-red-700 hover:bg-red-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-red-600 cursor-pointer self-end">JETZT AUFRÄUMEN</button>
                 </div>
             </div>
         </div>
@@ -2218,7 +2324,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Neue Notiz</span>
-                    <button @click="closeNewNote" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                    <div class="flex items-center gap-2">
+                        <button @click="toggleNewNotePreview" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2.5 py-0.5 font-semibold transition-colors text-[11px] cursor-pointer">{{ newNotePreviewMode ? 'Bearbeiten' : 'Vorschau' }}</button>
+                        <button @click="closeNewNote" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                    </div>
                 </div>
                 <div class="p-3 flex flex-col gap-3 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -2321,14 +2430,22 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-2 block border-b border-zinc-200 dark:border-zinc-800 pb-1">Inhalt (Markdown)</span>
                                 <textarea 
                                 ref="newNoteTextareaRef"
+                                v-if="!newNotePreviewMode"
                                 v-model="newNoteContent" 
-                                placeholder="Inhalt schreiben... ([[ Für Notiz-Links)" 
+                                placeholder="Inhalt schreiben... ([[ Für Notiz-Links) (Rechtsklick für Formatierung)" 
                                 @input="handleAutocomplete"
                                 @keyup="updateAutocompletePos"
                                 @click="updateAutocompletePos"
                                 @keydown="handleAutocompleteKeydown"
+                                @paste="onEditorPaste($event, 'new')"
                                 class="w-full h-40 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
                                 ></textarea>
+                                <div 
+                                     v-if="newNotePreviewMode" 
+                                     class="markdown-body w-full h-40 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-zinc-800 dark:text-zinc-200 overflow-y-auto text-xs"
+                                     v-html="newNoteRenderedMarkdown"
+                                     @click.prevent="onNewNotePreviewClick">
+                                </div>
                                 <div ref="newNoteCaretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
                                 <div 
                                 v-if="showAutocomplete"
@@ -2425,13 +2542,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         <!-- Detail Modal -->
         <div v-if="isModalOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-50">
             <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl flex flex-col h-[88vh] shadow-2xl" @click.stop>
-                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center">
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex items-center gap-2">
+                    <button 
+                        @click="toggleDetailPreview" 
+                        class="shrink-0 bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2.5 py-0.5 font-semibold transition-colors text-[11px] cursor-pointer">
+                        {{ isPreviewMode ? 'Bearbeiten' : 'Vorschau' }}
+                    </button>
                     <input 
                         type="text" 
                         v-model="activeNote.title" 
-                        class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 w-full font-bold focus:outline-none focus:border-emerald-500"
+                        class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 flex-1 min-w-0 font-bold focus:outline-none focus:border-emerald-500"
                     >
-                    <button @click="closeModal" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                    <button @click="closeModal" class="shrink-0 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
 
                 <div class="bg-zinc-100/50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 px-3 py-1.5 flex justify-between items-center text-[11px]">
@@ -2515,13 +2637,6 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             </div>
                         </label>
                     </div>
-                    <div>
-                        <button 
-                            @click="isPreviewMode = !isPreviewMode" 
-                            class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2.5 py-0.5 font-semibold transition-colors text-[11px] cursor-pointer">
-                            {{ isPreviewMode ? 'Bearbeiten' : 'Vorschau' }}
-                        </button>
-                    </div>
                 </div>
 
                 <!-- Content & checklist area -->
@@ -2538,6 +2653,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 @keyup="updateAutocompletePos"
                                 @click="updateAutocompletePos"
                                 @keydown="handleAutocompleteKeydown"
+                                @paste="onEditorPaste($event, 'edit')"
                                 placeholder="Inhalt mit Markdown schreiben... (Rechtsklick für Text-Formatierung)"
                                 class="w-full flex-1 min-h-0 bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 p-2.5 text-xs font-mono resize-none focus:outline-none focus:border-zinc-400 dark:border-zinc-600"
                             ></textarea>
@@ -2583,7 +2699,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         <div 
                             v-if="contextMenu.show" 
                             :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }"
-                            class="fmt-menu absolute z-50 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs w-52 font-mono select-none"
+                            class="fmt-menu fixed z-50 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs w-52 font-mono select-none"
                         >
                             <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1">Markdown Format</div>
                             <button @click="applyFormat('**')" class="w-full text-left px-3 py-1 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between"><span>Fett</span><span class="text-zinc-600 dark:text-zinc-500">**text**</span></button>
@@ -2752,6 +2868,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 const isModalOpen = ref(false)
                 const isPreviewMode = ref(false)
+                const newNotePreviewMode = ref(false)
                 const activeNote = ref(null)
                 const activeChecklist = ref([])
                 const newStepText = ref('')
@@ -2804,6 +2921,60 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     localStorage.setItem('notice-autoarchive-enabled', autoArchiveEnabled.value ? '1' : '0')
                     localStorage.setItem('notice-autoarchive-day', String(autoArchiveDay.value || 1))
                 })
+
+                // Settings (trash purge)
+                const trashPurgeEnabled = ref(localStorage.getItem('notice-trashpurge-enabled') === '1')
+                const trashPurgeDay = ref(parseInt(localStorage.getItem('notice-trashpurge-day') || '30', 10) || 30)
+                watch([trashPurgeEnabled, trashPurgeDay], () => {
+                    localStorage.setItem('notice-trashpurge-enabled', trashPurgeEnabled.value ? '1' : '0')
+                    localStorage.setItem('notice-trashpurge-day', String(trashPurgeDay.value || 30))
+                })
+                const trashPurging = ref(false)
+                const purgeTrash = async (days) => {
+                    if (trashPurging.value) return
+                    trashPurging.value = true
+                    try {
+                        const res = await fetch('/api/trash/purge', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ days: days || 0 })
+                        })
+                        if (res.ok) await fetchTrash()
+                    } catch (e) {
+                        console.error('Fehler beim Purgen des Papierkorbs', e)
+                    } finally {
+                        trashPurging.value = false
+                    }
+                }
+                const runTrashPurgeNow = async () => {
+                    if (!confirm('Papierkorb jetzt aufräumen? Alle Elemente, die älter als ' + (trashPurgeDay.value || 30) + ' Tage sind, werden endgültig gelöscht.')) return
+                    await purgeTrash(trashPurgeDay.value || 30)
+                }
+
+                // Import preview
+                const pendingImport = ref(null)
+                const existingCount = ref(0)
+                const existingContactCount = ref(0)
+                const cancelImport = () => { pendingImport.value = null }
+
+                // Undo (single slot)
+                const undoSlot = ref(null)
+                const undoActive = ref(false)
+                let undoTimeout = null
+                const pushUndo = (msg, action) => {
+                    undoSlot.value = { msg, action }
+                    undoActive.value = true
+                    clearTimeout(undoTimeout)
+                    undoTimeout = setTimeout(() => { undoSlot.value = null; undoActive.value = false }, 10000)
+                }
+                const performUndo = async () => {
+                    if (!undoSlot.value) return
+                    undoActive.value = false
+                    clearTimeout(undoTimeout)
+                    const action = undoSlot.value.action
+                    undoSlot.value = null
+                    try { await action() } catch (e) { console.error('Fehler beim Rückgängig-machen', e) }
+                }
 
                 // Department suggestions (for new note form & detail modal)
                 const departments = ref([])
@@ -3487,6 +3658,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             const createdNote = await res.json()
                             notes.value.push(createdNote)
                             fetchDepartments()
+                            pushUndo('Notiz "' + createdNote.title + '" erstellt', async () => {
+                                const id = createdNote.id
+                                notes.value = notes.value.filter(n => n.id !== id)
+                                await fetch(`/api/notes/${id}/force`, { method: 'DELETE' })
+                            })
                             clearNewNoteDraft()
                             closeNewNote()
                         }
@@ -3542,7 +3718,6 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 const startImport = (mode) => {
-                    if (mode === 'replace' && !confirm('Beim Ersetzen werden ALLE bestehenden Notizen und Kontakte gelöscht und durch die Import-Datei ersetzt. Fortfahren?')) return
                     importMode.value = mode
                     if (importFileInputRef.value) importFileInputRef.value.click()
                 }
@@ -3568,11 +3743,20 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         alert('Keine Notizen in der Datei gefunden.')
                         return
                     }
+                    existingCount.value = notes.value.length
+                    existingContactCount.value = contacts.value.length
+                    pendingImport.value = { fileName: file.name, mode: importMode.value, notes: pnotes, contacts: pcontacts }
+                }
+
+                const confirmImport = async () => {
+                    const imp = pendingImport.value
+                    if (!imp) return
+                    pendingImport.value = null
                     try {
                         const res = await fetch('/api/import', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ mode: importMode.value, notes: pnotes, contacts: pcontacts })
+                            body: JSON.stringify({ mode: imp.mode, notes: imp.notes, contacts: imp.contacts })
                         })
                         if (res.ok) {
                             const r = await res.json()
@@ -3675,18 +3859,27 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 // Context menu logic
                 const openContextMenu = (e) => {
                     if (!textareaRef.value) return
-                    const rect = e.target.getBoundingClientRect()
-                    // Offset result to the menu's containing block (nearest positioned ancestor)
-                    let cont = textareaRef.value.parentElement
-                    while (cont && getComputedStyle(cont).position === 'static') cont = cont.parentElement
-                    const contRect = (cont || document.body).getBoundingClientRect()
+                    const cx = e.clientX
+                    const cy = e.clientY
                     contextMenu.value = {
                         show: true,
-                        x: (e.clientX - rect.left) + (rect.left - contRect.left),
-                        y: (e.clientY - rect.top) + (rect.top - contRect.top),
+                        x: cx,
+                        y: cy,
                         selectionStart: textareaRef.value.selectionStart,
                         selectionEnd: textareaRef.value.selectionEnd
                     }
+                    nextTick(() => {
+                        const menu = document.querySelector('.fmt-menu')
+                        if (!menu) return
+                        const mr = menu.getBoundingClientRect()
+                        const pad = 8
+                        if (mr.bottom > window.innerHeight - pad) {
+                            contextMenu.value.y = Math.max(pad, cy - mr.height - pad)
+                        }
+                        if (mr.right > window.innerWidth - pad) {
+                            contextMenu.value.x = Math.max(pad, cx - mr.width - pad)
+                        }
+                    })
                 }
 
                 const closeContextMenu = () => {
@@ -3985,6 +4178,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             const newNote = await res.json()
                             notes.value.push(newNote)
                             fetchDepartments()
+                            pushUndo('Notiz dupliziert', async () => {
+                                const id = newNote.id
+                                notes.value = notes.value.filter(n => n.id !== id)
+                                await fetch(`/api/notes/${id}/force`, { method: 'DELETE' })
+                            })
                         }
                     } catch (e) {
                         console.error('Fehler beim Duplizieren', e)
@@ -3993,7 +4191,30 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 // --- Archive / restore ---
                 const archiveNote = async (note) => {
+                    const snapshot = { ...note }
                     await updateNoteStatus(note, 'archived')
+                    pushUndo('Notiz "' + note.title + '" archiviert', async () => {
+                        const n = notes.value.find(x => x.id === snapshot.id)
+                        if (!n) return
+                        n.status = snapshot.status
+                        n.sort_order = snapshot.sort_order
+                        try {
+                            await fetch(`/api/notes/${snapshot.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    title: n.title,
+                                    content: n.content,
+                                    status: snapshot.status,
+                                    priority: n.priority,
+                                    due_date: n.due_date,
+                                    sort_order: snapshot.sort_order
+                                })
+                            })
+                        } catch (e) {
+                            console.error('Fehler beim Rückgängig-machen (Archiv)', e)
+                        }
+                    })
                 }
 
                 const unarchiveNote = async (note) => {
@@ -4136,6 +4357,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (startupChecksDone) return
                     startupChecksDone = true
                     await autoArchiveDone()
+                    if (trashPurgeEnabled.value) {
+                        await purgeTrash(trashPurgeDay.value || 30)
+                    }
                     collectOverdueReminders({ skipNotify: true })
                 }
 
@@ -4234,6 +4458,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const onColDrop = async (columnId, e) => {
                     const dragged = draggedNote.value
                     if (!dragged) return
+                    const snapshot = { id: dragged.id, title: dragged.title, status: dragged.status, sort_order: dragged.sort_order }
                     const { idx } = dropPosition(e)
                     if (dragged.status === columnId) {
                         await reorderColumn(columnId, dragged, idx)
@@ -4261,6 +4486,28 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         }
                         await reorderColumn(columnId, dragged, idx)
                     }
+                    pushUndo('Notiz "' + snapshot.title + '" verschoben', async () => {
+                        const n = notes.value.find(x => x.id === snapshot.id)
+                        if (!n) return
+                        n.status = snapshot.status
+                        n.sort_order = snapshot.sort_order
+                        try {
+                            await fetch(`/api/notes/${snapshot.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    title: n.title,
+                                    content: n.content,
+                                    status: snapshot.status,
+                                    priority: n.priority,
+                                    due_date: n.due_date,
+                                    sort_order: snapshot.sort_order
+                                })
+                            })
+                        } catch (err) {
+                            console.error('Fehler beim Rückgängig-machen (Verschieben)', err)
+                        }
+                    })
                     endDrag()
                     collectOverdueReminders()
                 }
@@ -4374,31 +4621,194 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     list.splice(from < to ? to - 1 : to, 0, moved)
                 }
 
-                const renderedMarkdown = computed(() => {
-                    if (!activeNote.value || !activeNote.value.content) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
-                    let html = marked.parse(activeNote.value.content)
+                const centerBlocks = (md) => {
+                    return md.replace(/^:::center[ \t]*\n([\s\S]*?)\n:::[ \t]*$/gm, (match, inner) => {
+                        return `<div class="md-center">${marked.parse(inner).trim()}</div>`
+                    })
+                }
+
+                const sanitizeHtml = (html) => {
+                    const template = document.createElement('template')
+                    template.innerHTML = html
+                    const DISALLOWED = new Set(['script', 'style', 'iframe', 'object', 'embed', 'meta', 'link', 'form', 'textarea', 'select', 'option', 'video', 'audio', 'source', 'track', 'canvas', 'svg', 'math', 'template', 'title', 'base', 'applet', 'frame', 'frameset', 'noframes', 'noscript'])
+                    const UNWRAP = new Set(['header', 'footer', 'aside', 'section', 'article', 'nav', 'main', 'figure', 'figcaption', 'summary', 'details', 'mark', 'small', 'sub', 'sup', 'kbd', 'samp', 'var', 'q', 'cite', 'abbr', 'time', 'ins', 'u', 'b', 'i', 'font', 'center', 'div2', 'span2'])
+                    const ALLOWED_ATTRS = {
+                        'A': new Set(['class', 'data-note-title', 'data-address-name', 'href', 'target', 'rel']),
+                        'IMG': new Set(['src', 'alt', 'title']),
+                        'SPAN': new Set(['style', 'class']),
+                        'DIV': new Set(['class']),
+                        'INPUT': new Set(['type', 'data-cb-i', 'checked']),
+                        'TH': new Set(['align']),
+                        'TD': new Set(['align']),
+                        'TABLE': new Set(['align']),
+                        'P': new Set(['class', 'align']),
+                        'H1': new Set(['class', 'align']),
+                        'H2': new Set(['class', 'align']),
+                        'H3': new Set(['class', 'align']),
+                        'H4': new Set(['class', 'align']),
+                        'H5': new Set(['class', 'align']),
+                        'H6': new Set(['class', 'align'])
+                    }
+                    const process = (node) => {
+                        if (node.nodeType === Node.COMMENT_NODE) {
+                            node.remove()
+                            return
+                        }
+                        if (node.nodeType !== Node.ELEMENT_NODE) return
+                        const tag = node.tagName.toLowerCase()
+                        if (DISALLOWED.has(tag)) {
+                            node.remove()
+                            return
+                        }
+                        const attrAllow = ALLOWED_ATTRS[node.tagName] || new Set(['class'])
+                        ;[...node.attributes].forEach(attr => {
+                            if (!attrAllow.has(attr.name)) node.removeAttribute(attr.name)
+                        })
+                        if (node.tagName === 'A') {
+                            node.setAttribute('target', '_blank')
+                            node.setAttribute('rel', 'noopener noreferrer')
+                            const href = node.getAttribute('href')
+                            if (href) {
+                                const scheme = href.replace(/^([a-zA-Z][a-zA-Z0-9+.-]*):.*$/, '$1').toLowerCase()
+                                if (!['http', 'https', 'mailto'].includes(scheme) && !href.startsWith('/') && !href.startsWith('#')) {
+                                    node.removeAttribute('href')
+                                }
+                            }
+                        }
+                        if (node.tagName === 'IMG') {
+                            const src = node.getAttribute('src')
+                            if (src && !/^(data:image\/|https?:\/\/|\/)/i.test(src)) node.removeAttribute('src')
+                        }
+                        if (node.tagName === 'SPAN') {
+                            const style = node.getAttribute('style')
+                            if (style && !/^color\s*:/i.test(style.trim())) node.removeAttribute('style')
+                        }
+                        if (node.tagName === 'DIV') {
+                            const cls = node.getAttribute('class') || ''
+                            if (cls.trim() !== 'md-center') {
+                                const children = [...node.childNodes]
+                                node.replaceWith(...children)
+                                children.forEach(process)
+                                return
+                            }
+                        }
+                        if (UNWRAP.has(tag)) {
+                            const children = [...node.childNodes]
+                            node.replaceWith(...children)
+                            children.forEach(process)
+                            return
+                        }
+                        [...node.childNodes].forEach(process)
+                    }
+                    [...template.content.childNodes].forEach(process)
+                    return template.innerHTML
+                }
+
+                const renderMarkdown = (content, checklist) => {
+                    if (!content) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
+                    let html = marked.parse(centerBlocks(content))
                     html = processAddressLinks(processNoteLinks(html))
-                    // Make markdown checkboxes in the preview clickable, mapped
-                    // positionally to the checklist entries.
                     let idx = 0
                     html = html.replace(/<input[^>]*disabled[^>]*type="checkbox"[^>]*>/g, () => {
                         const cur = idx++
-                        const done = activeChecklist.value[cur] ? activeChecklist.value[cur].done : false
+                        const done = checklist && checklist[cur] ? checklist[cur].done : false
                         return `<input type="checkbox" data-cb-i="${cur}"${done ? ' checked' : ''}>`
                     })
-                    return html
+                    return sanitizeHtml(html)
+                }
+
+                const renderedMarkdown = computed(() => {
+                    if (!activeNote.value) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
+                    return renderMarkdown(activeNote.value.content, activeChecklist.value)
                 })
 
-                const onPreviewClick = (e) => {
+                const newNoteRenderedMarkdown = computed(() => {
+                    return renderMarkdown(newNoteContent.value, newNoteChecklist.value)
+                })
+
+                const onChecklistToggle = (e, list) => {
                     const cb = e.target.closest('input[data-cb-i]')
                     if (cb) {
                         const i = parseInt(cb.getAttribute('data-cb-i'), 10)
-                        if (activeChecklist.value[i]) {
-                            activeChecklist.value[i].done = !activeChecklist.value[i].done
+                        if (list && list[i]) list[i].done = !list[i].done
+                        return true
+                    }
+                    return false
+                }
+
+                const onPreviewClick = (e) => {
+                    if (onChecklistToggle(e, activeChecklist.value)) return
+                    handleNoteLinkClick(e)
+                }
+
+                const onNewNotePreviewClick = (e) => {
+                    if (onChecklistToggle(e, newNoteChecklist.value)) return
+                    handleNoteLinkClick(e)
+                }
+
+                const toggleDetailPreview = () => {
+                    isPreviewMode.value = !isPreviewMode.value
+                    showAutocomplete.value = false
+                }
+                const toggleNewNotePreview = () => {
+                    newNotePreviewMode.value = !newNotePreviewMode.value
+                    showAutocomplete.value = false
+                }
+
+                const resizePastedImage = (file, maxWidth) => {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader()
+                        reader.onload = () => {
+                            const img = new Image()
+                            img.onload = () => {
+                                const scale = Math.min(1, maxWidth / (img.width || maxWidth))
+                                const w = Math.max(1, Math.round((img.width || 1) * scale))
+                                const h = Math.max(1, Math.round((img.height || 1) * scale))
+                                const canvas = document.createElement('canvas')
+                                canvas.width = w
+                                canvas.height = h
+                                canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+                                resolve(canvas.toDataURL('image/jpeg', 0.85))
+                            }
+                            img.onerror = reject
+                            img.src = reader.result
                         }
+                        reader.onerror = reject
+                        reader.readAsDataURL(file)
+                    })
+                }
+
+                const onEditorPaste = async (e, which) => {
+                    const ta = which === 'new' ? newNoteTextareaRef.value : textareaRef.value
+                    if (!ta) return
+                    const items = (e.clipboardData && e.clipboardData.items) || []
+                    let file = null
+                    for (const item of items) {
+                        if (item.kind === 'file' && item.type && item.type.startsWith('image/')) {
+                            file = item.getAsFile()
+                            break
+                        }
+                    }
+                    if (!file) return
+                    e.preventDefault()
+                    let markdownImage
+                    try {
+                        const dataUrl = await resizePastedImage(file, 1200)
+                        markdownImage = `![Bild](${dataUrl})`
+                    } catch (err) {
+                        console.error('Fehler beim Bild-Einfügen', err)
                         return
                     }
-                    handleNoteLinkClick(e)
+                    const start = ta.selectionStart
+                    const end = ta.selectionEnd
+                    const cur = which === 'new' ? (newNoteContent.value || '') : (activeNote.value ? activeNote.value.content : '')
+                    const next = cur.substring(0, start) + markdownImage + cur.substring(end)
+                    if (which === 'new') newNoteContent.value = next
+                    else if (activeNote.value) activeNote.value.content = next
+                    await nextTick()
+                    ta.focus()
+                    const pos = start + markdownImage.length
+                    ta.setSelectionRange(pos, pos)
                 }
 
                 const saveActiveNote = async () => {
@@ -4439,11 +4849,20 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 }
 
                 const deleteNote = async (id) => {
+                    const note = notes.value.find(n => n.id === id)
                     try {
                         const res = await fetch(`/api/notes/${id}`, { method: 'DELETE' })
                         if (res.ok) {
-                            notes.value = notes.value.filter(note => note.id !== id)
+                            notes.value = notes.value.filter(n => n.id !== id)
                             fetchTrash()
+                            if (note) {
+                                pushUndo('Notiz "' + note.title + '" gelöscht', async () => {
+                                    await fetch(`/api/notes/${id}/restore`, { method: 'POST' })
+                                    notes.value.push({ ...note, deleted_at: null })
+                                    notes.value.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id)
+                                    fetchTrash()
+                                })
+                            }
                         }
                     } catch (e) {
                         console.error('Fehler beim Löschen', e)
@@ -5038,6 +5457,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     clearNewNoteDraft,
                     autoArchiveEnabled,
                     autoArchiveDay,
+                    trashPurgeEnabled,
+                    trashPurgeDay,
+                    runTrashPurgeNow,
+                    purgeTrash,
+                    pendingImport,
+                    existingCount,
+                    existingContactCount,
+                    cancelImport,
+                    confirmImport,
+                    undoSlot,
+                    undoActive,
+                    performUndo,
                     reminderOpen,
                     overdueReminders,
                     openNoteFromReminder,
@@ -5096,6 +5527,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     notesById,
                     isModalOpen,
                     isPreviewMode,
+                    toggleDetailPreview,
+                    newNotePreviewMode,
+                    toggleNewNotePreview,
+                    newNoteRenderedMarkdown,
+                    onNewNotePreviewClick,
+                    onEditorPaste,
                     activeNote,
                     activeChecklist,
                     newStepText,
