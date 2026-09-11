@@ -39,6 +39,7 @@ struct Contact {
     id: i64,
     name: String,
     department: Option<String>,
+    departments: Option<String>,
     phone: Option<String>,
     email: Option<String>,
     description: Option<String>,
@@ -48,6 +49,7 @@ struct Contact {
 struct CreateContact {
     name: String,
     department: Option<String>,
+    departments: Option<String>,
     phone: Option<String>,
     email: Option<String>,
     description: Option<String>,
@@ -57,6 +59,7 @@ struct CreateContact {
 struct UpdateContact {
     name: Option<String>,
     department: Option<String>,
+    departments: Option<String>,
     phone: Option<String>,
     email: Option<String>,
     description: Option<String>,
@@ -65,6 +68,27 @@ struct UpdateContact {
 #[derive(Deserialize)]
 struct DeleteDepartment {
     name: String,
+}
+
+#[derive(Serialize, Deserialize, FromRow, Clone)]
+struct WikiPage {
+    id: i64,
+    title: String,
+    content: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateWiki {
+    title: String,
+    content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpdateWiki {
+    title: Option<String>,
+    content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -113,6 +137,7 @@ struct ImportNote {
 struct ImportContact {
     name: String,
     department: Option<String>,
+    departments: Option<String>,
     phone: Option<String>,
     email: Option<String>,
     description: Option<String>,
@@ -263,6 +288,20 @@ async fn main() {
         .execute(&pool)
         .await;
 
+    // Departments can also be created in the DATEN-View (previously only derived from notes)
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS departments_store (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE)",
+    )
+    .execute(&pool)
+    .await;
+
+    // Wiki pages referenced via <<...>> links
+    let _ = sqlx::query(
+        "CREATE TABLE IF NOT EXISTS wiki (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL UNIQUE, content TEXT, created_at TEXT, updated_at TEXT)",
+    )
+    .execute(&pool)
+    .await;
+
     // Migration: existing databases still use the old column name "einrichtung"
     let _ = sqlx::query("ALTER TABLE notes RENAME COLUMN einrichtung TO department")
         .execute(&pool)
@@ -348,6 +387,35 @@ async fn main() {
         .execute(&db)
         .await;
 
+    // Migration: add departments (JSON array) column to contacts
+    let _ = sqlx::query("ALTER TABLE contacts ADD COLUMN departments TEXT")
+        .execute(&db)
+        .await;
+
+    // Migration: migrate existing single department values into the departments JSON array
+    let _ = sqlx::query(
+        r#"
+        UPDATE contacts
+        SET departments = json_array(department)
+        WHERE departments IS NULL
+          AND department IS NOT NULL
+          AND TRIM(department) != ''
+        "#,
+    )
+    .execute(&db)
+    .await;
+
+    // Migration: set empty department values to an empty JSON array
+    let _ = sqlx::query(
+        r#"
+        UPDATE contacts
+        SET departments = '[]'
+        WHERE departments IS NULL
+        "#,
+    )
+    .execute(&db)
+    .await;
+
     // Seed sample contacts on first run (empty table)
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM contacts")
         .fetch_one(&db)
@@ -356,9 +424,9 @@ async fn main() {
     if count == 0 {
         let _ = sqlx::query(
             r#"
-            INSERT INTO contacts (name, department, phone, email, description) VALUES
-                ('Max Mustermann', 'Küche', '030 12345678', 'max.mustermann@example.de', 'Küchenchef, verantwortlich für den Speiseplan.'),
-                ('Erika Musterfrau', 'Verwaltung', '030 87654321', 'erika.musterfrau@example.de', 'Leiterin der Verwaltung, Ansprechpartnerin für Rechnungen.')
+            INSERT INTO contacts (name, department, departments, phone, email, description) VALUES
+                ('Max Mustermann', 'Küche', '["Küche"]', '030 12345678', 'max.mustermann@example.de', 'Küchenchef, verantwortlich für den Speiseplan.'),
+                ('Erika Musterfrau', 'Verwaltung', '["Verwaltung"]', '030 87654321', 'erika.musterfrau@example.de', 'Leiterin der Verwaltung, Ansprechpartnerin für Rechnungen.')
             "#,
         )
         .execute(&db)
@@ -375,7 +443,10 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/api/notes", get(get_notes).post(create_note))
         .route("/api/notes/search", get(search_notes))
-        .route("/api/departments", get(get_departments))
+        .route("/api/departments", get(get_departments).post(create_department))
+        .route("/api/wiki", get(get_wiki_pages).post(create_wiki_page))
+        .route("/api/wiki/search", get(search_wiki))
+        .route("/api/wiki/:id", put(update_wiki_page).delete(delete_wiki_page))
         .route("/api/departments/delete", post(delete_department))
         .route("/api/notes/:id", post(update_note).put(update_note).delete(delete_note))
         .route("/api/notes/:id/duplicate", post(duplicate_note))
@@ -420,13 +491,21 @@ async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
 async fn get_departments(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, (String, i64)>(
         r#"
-        SELECT dep.value AS name, COUNT(*) AS cnt
-        FROM notes,
-             json_each(COALESCE(notes.departments, '[]')) AS dep
-        WHERE json_type(COALESCE(notes.departments, '[]')) IS NOT NULL
-          AND notes.deleted_at IS NULL
-        GROUP BY LOWER(dep.value)
-        ORDER BY cnt DESC, LOWER(dep.value) ASC
+        SELECT name, cnt FROM (
+            SELECT dep.value AS name, COUNT(*) AS cnt, LOWER(dep.value) AS lname
+            FROM notes,
+                 json_each(COALESCE(notes.departments, '[]')) AS dep
+            WHERE json_type(COALESCE(notes.departments, '[]')) IS NOT NULL
+              AND notes.deleted_at IS NULL
+              AND TRIM(dep.value) != ''
+            GROUP BY LOWER(dep.value)
+            UNION
+            SELECT s.name AS name, 0 AS cnt, LOWER(s.name) AS lname
+            FROM departments_store s
+            WHERE TRIM(s.name) != ''
+        )
+        GROUP BY lname
+        ORDER BY cnt DESC, LOWER(name) ASC
         "#,
     )
     .fetch_all(&state.pool)
@@ -437,6 +516,205 @@ async fn get_departments(State(state): State<AppState>) -> impl IntoResponse {
                 .into_iter()
                 .filter(|(name, _)| !name.is_empty())
                 .map(|(name, count)| serde_json::json!({ "name": name, "count": count }))
+                .collect();
+            Json(json).into_response()
+        }
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct CreateDepartment {
+    name: String,
+}
+
+async fn create_department(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateDepartment>,
+) -> impl IntoResponse {
+    let name = payload.name.trim().to_string();
+    if name.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    // Case-insensitive duplicate check
+    let existing: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM departments_store WHERE LOWER(TRIM(name)) = LOWER(?) LIMIT 1",
+    )
+    .bind(&name)
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+    if existing.is_some() {
+        return StatusCode::CONFLICT.into_response();
+    }
+    let res = sqlx::query("INSERT INTO departments_store (name) VALUES (?)")
+        .bind(&name)
+        .execute(&state.pool)
+        .await;
+    match res {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn get_wiki_pages(State(state): State<AppState>) -> impl IntoResponse {
+    match sqlx::query_as::<_, WikiPage>(
+        "SELECT id, title, content, created_at, updated_at FROM wiki ORDER BY LOWER(title) ASC, id ASC",
+    )
+    .fetch_all(&state.pool)
+    .await
+    {
+        Ok(pages) => Json(pages).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn create_wiki_page(
+    State(state): State<AppState>,
+    Json(payload): Json<CreateWiki>,
+) -> impl IntoResponse {
+    let title = payload.title.trim().to_string();
+    if title.is_empty() {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let content = payload
+        .content
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let res = sqlx::query(
+        "INSERT INTO wiki (title, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&title)
+    .bind(&content)
+    .bind(&now)
+    .bind(&now)
+    .execute(&state.pool)
+    .await;
+    match res {
+        Ok(result) => {
+            let new_id: i64 = result.last_insert_rowid();
+            match sqlx::query_as::<_, WikiPage>(
+                "SELECT id, title, content, created_at, updated_at FROM wiki WHERE id = ?",
+            )
+            .bind(new_id)
+            .fetch_one(&state.pool)
+            .await
+            {
+                Ok(page) => (StatusCode::OK, Json(page)).into_response(),
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
+        Err(_) => StatusCode::CONFLICT.into_response(),
+    }
+}
+
+async fn update_wiki_page(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(payload): Json<UpdateWiki>,
+) -> impl IntoResponse {
+    let existing = match sqlx::query_as::<_, WikiPage>(
+        "SELECT id, title, content, created_at, updated_at FROM wiki WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    {
+        Ok(Some(p)) => p,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    let title = match payload.title {
+        Some(s) => {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                return StatusCode::BAD_REQUEST.into_response();
+            }
+            t
+        }
+        None => existing.title,
+    };
+    let content = match payload.content {
+        Some(s) => {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        }
+        None => existing.content,
+    };
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let res = sqlx::query(
+        "UPDATE wiki SET title = ?, content = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(&title)
+    .bind(&content)
+    .bind(&now)
+    .bind(id)
+    .execute(&state.pool)
+    .await;
+    match res {
+        Ok(_) => {
+            match sqlx::query_as::<_, WikiPage>(
+                "SELECT id, title, content, created_at, updated_at FROM wiki WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            {
+                Ok(page) => Json(page).into_response(),
+                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            }
+        }
+        Err(_) => StatusCode::CONFLICT.into_response(),
+    }
+}
+
+async fn delete_wiki_page(State(state): State<AppState>, Path(id): Path<i64>) -> impl IntoResponse {
+    match sqlx::query("DELETE FROM wiki WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await
+    {
+        Ok(rows) if rows.rows_affected() > 0 => StatusCode::OK.into_response(),
+        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn search_wiki(State(state): State<AppState>, Query(params): Query<SearchQuery>) -> impl IntoResponse {
+    let q = params.q.unwrap_or_default().trim().to_string();
+    if q.is_empty() {
+        match sqlx::query_as::<_, (i64, String)>(
+            "SELECT id, title FROM wiki ORDER BY id DESC LIMIT 8",
+        )
+        .fetch_all(&state.pool)
+        .await
+        {
+            Ok(results) => {
+                let json: Vec<serde_json::Value> = results
+                    .into_iter()
+                    .map(|(id, title)| serde_json::json!({ "id": id, "name": title }))
+                    .collect();
+                return Json(json).into_response();
+            }
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    }
+    let pattern = format!("%{}%", q);
+    match sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, title FROM wiki WHERE LOWER(title) LIKE ? ORDER BY LOWER(title) ASC LIMIT 8",
+    )
+    .bind(pattern)
+    .fetch_all(&state.pool)
+    .await
+    {
+        Ok(results) => {
+            let json: Vec<serde_json::Value> = results
+                .into_iter()
+                .map(|(id, title)| serde_json::json!({ "id": id, "name": title }))
                 .collect();
             Json(json).into_response()
         }
@@ -476,7 +754,21 @@ async fn search_notes(
 ) -> impl IntoResponse {
     let q = params.q.unwrap_or_default().trim().to_lowercase();
     if q.is_empty() {
-        return Json(Vec::<serde_json::Value>::new()).into_response();
+        match sqlx::query_as::<_, (i64, String)>(
+            "SELECT id, title FROM notes WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 8",
+        )
+        .fetch_all(&state.pool)
+        .await
+        {
+            Ok(results) => {
+                let json: Vec<serde_json::Value> = results
+                    .into_iter()
+                    .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
+                    .collect();
+                return Json(json).into_response();
+            }
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
     }
     let pattern = format!("%{}%", q);
     match sqlx::query_as::<_, (i64, String)>(
@@ -705,7 +997,7 @@ async fn get_trash(State(state): State<AppState>) -> impl IntoResponse {
     .fetch_all(&state.pool)
     .await;
     let contacts = sqlx::query_as::<_, Contact>(
-        "SELECT id, name, department, phone, email, description FROM contacts WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
+        "SELECT id, name, department, departments, phone, email, description FROM contacts WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
     )
     .fetch_all(&state.db)
     .await;
@@ -739,13 +1031,13 @@ async fn purge_trash(
     let cutoff = chrono::Local::now() - chrono::Duration::days(days);
     let cutoff_str = cutoff.format("%Y-%m-%d %H:%M:%S").to_string();
     let notes_res = sqlx::query(
-        "DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+        "DELETE FROM notes WHERE deleted_at IS NOT NULL AND deleted_at <= ?",
     )
     .bind(&cutoff_str)
     .execute(&state.pool)
     .await;
     let contacts_res = sqlx::query(
-        "DELETE FROM contacts WHERE deleted_at IS NOT NULL AND deleted_at < ?",
+        "DELETE FROM contacts WHERE deleted_at IS NOT NULL AND deleted_at <= ?",
     )
     .bind(&cutoff_str)
     .execute(&state.db)
@@ -886,6 +1178,10 @@ async fn import_data(
                 if t.is_empty() { None } else { Some(t) }
             })
             .flatten();
+        let departments = match c.departments.clone().filter(|s| !s.trim().is_empty()) {
+            Some(d) => normalize_departments(Some(d), c.department.clone()),
+            None => normalize_departments(None, department.clone()),
+        };
         let phone = c
             .phone
             .clone()
@@ -912,10 +1208,11 @@ async fn import_data(
             .flatten();
 
         let res = sqlx::query(
-            "INSERT INTO contacts (name, department, phone, email, description) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO contacts (name, department, departments, phone, email, description) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&name)
         .bind(department)
+        .bind(departments)
         .bind(phone)
         .bind(email)
         .bind(description)
@@ -999,13 +1296,52 @@ async fn duplicate_note(
 
 async fn get_contacts(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, Contact>(
-        "SELECT id, name, department, phone, email, description FROM contacts WHERE deleted_at IS NULL ORDER BY LOWER(name) ASC, id ASC",
+        "SELECT id, name, department, departments, phone, email, description FROM contacts WHERE deleted_at IS NULL ORDER BY LOWER(name) ASC, id ASC",
     )
     .fetch_all(&state.db)
     .await
     {
         Ok(contacts) => Json(contacts).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+// Returns the first department name of a JSON-array string (e.g. `["Küche","Bad"]`).
+fn first_department(departments: &Option<String>) -> Option<String> {
+    let raw = departments.as_deref()?;
+    let parsed: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let arr = parsed.as_array()?;
+    arr.iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .find(|s| !s.is_empty())
+}
+
+// Normalizes a departments JSON-array input into a canonical JSON-array string ("[]" when empty).
+fn normalize_departments(departments: Option<String>, first: Option<String>) -> String {
+    match departments {
+        Some(raw) => {
+            let trimmed = raw.trim().to_string();
+            if trimmed.is_empty() {
+                "[]".to_string()
+            } else {
+                match serde_json::from_str::<serde_json::Value>(&trimmed) {
+                    Ok(v) if v.is_array() => serde_json::to_string(&v).unwrap_or_else(|_| "[]".to_string()),
+                    _ => "[]".to_string(),
+                }
+            }
+        }
+        None => match first {
+            Some(name) => {
+                let cleaned = name.trim().to_string();
+                if cleaned.is_empty() {
+                    "[]".to_string()
+                } else {
+                    serde_json::to_string(&vec![cleaned]).unwrap_or_else(|_| "[]".to_string())
+                }
+            }
+            None => "[]".to_string(),
+        },
     }
 }
 
@@ -1017,10 +1353,12 @@ async fn create_contact(
     if name.is_empty() {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let department = payload
-        .department
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let departments = normalize_departments(
+        payload.departments.map(|s| s.trim().to_string()),
+        payload.department,
+    );
+    let legacy_department = first_department(&Some(departments.clone()));
+    let department = legacy_department;
     let phone = payload
         .phone
         .map(|s| s.trim().to_string())
@@ -1035,10 +1373,11 @@ async fn create_contact(
         .filter(|s| !s.is_empty());
 
     let result = sqlx::query(
-        "INSERT INTO contacts (name, department, phone, email, description) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO contacts (name, department, departments, phone, email, description) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(name)
     .bind(department)
+    .bind(departments)
     .bind(phone)
     .bind(email)
     .bind(description)
@@ -1087,13 +1426,19 @@ async fn update_contact(
         }
         None => existing.name,
     };
-    let department = payload
-        .department
-        .map(|s| {
-            let t = s.trim().to_string();
-            if t.is_empty() { None } else { Some(t) }
-        })
-        .unwrap_or(existing.department);
+
+    // Build departments JSON array from the sent value, the legacy single department field,
+    // or the previously stored departments array — in that priority order.
+    let departments = match payload.departments {
+        Some(s) if !s.trim().is_empty() => normalize_departments(Some(s), None),
+        _ => match existing.departments {
+            Some(d) if !d.trim().is_empty() && d.trim() != "[]" => d,
+            _ => normalize_departments(None, payload.department.clone().or(existing.department.clone())),
+        },
+    };
+    // Derive legacy department from the first element of the resolved array.
+    let department = first_department(&Some(departments.clone()));
+
     let phone = payload
         .phone
         .map(|s| {
@@ -1117,10 +1462,11 @@ async fn update_contact(
         .unwrap_or(existing.description);
 
     let result = sqlx::query(
-        "UPDATE contacts SET name = ?, department = ?, phone = ?, email = ?, description = ? WHERE id = ?",
+        "UPDATE contacts SET name = ?, department = ?, departments = ?, phone = ?, email = ?, description = ? WHERE id = ?",
     )
     .bind(name)
     .bind(department)
+    .bind(departments)
     .bind(phone)
     .bind(email)
     .bind(description)
@@ -1191,7 +1537,21 @@ async fn search_contacts(
 ) -> impl IntoResponse {
     let q = params.q.unwrap_or_default().trim().to_lowercase();
     if q.is_empty() {
-        return Json(Vec::<serde_json::Value>::new()).into_response();
+        match sqlx::query_as::<_, (i64, String)>(
+            "SELECT id, name FROM contacts WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 8",
+        )
+        .fetch_all(&state.db)
+        .await
+        {
+            Ok(results) => {
+                let json: Vec<serde_json::Value> = results
+                    .into_iter()
+                    .map(|(id, name)| serde_json::json!({ "id": id, "name": name }))
+                    .collect();
+                return Json(json).into_response();
+            }
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
     }
     let pattern = format!("%{}%", q);
     match sqlx::query_as::<_, (i64, String)>(
@@ -1221,6 +1581,12 @@ async fn delete_department(
         return StatusCode::BAD_REQUEST.into_response();
     }
 
+    // Remove the department from the DATEN-View store
+    let store_result = sqlx::query("DELETE FROM departments_store WHERE LOWER(TRIM(name)) = LOWER(?)")
+        .bind(&name)
+        .execute(&state.pool)
+        .await;
+
     // Update the notes pool: remove the department from every note's departments JSON array,
     // and clear the legacy single-value department column where it matches.
     let notes_result = sqlx::query(
@@ -1240,28 +1606,47 @@ async fn delete_department(
     .execute(&state.pool)
     .await;
 
-    // Update the contacts db: clear the department field where it matches.
+    // Update the contacts db: remove the department from every contact's departments JSON array
+    // and clear the legacy single-value department column where it matches.
     let contacts_result = sqlx::query(
-        "UPDATE contacts SET department = NULL WHERE LOWER(TRIM(department)) = LOWER(?)",
+        r#"
+        UPDATE contacts
+        SET departments = (
+            SELECT COALESCE(json_group_array(e.value), '[]')
+            FROM json_each(COALESCE(contacts.departments, '[]')) AS e
+            WHERE LOWER(TRIM(e.value)) != LOWER(?)
+              AND TRIM(e.value) != ''
+        ),
+        department = CASE WHEN LOWER(TRIM(department)) = LOWER(?) THEN NULL ELSE department END
+        "#,
     )
+    .bind(&name)
     .bind(&name)
     .execute(&state.db)
     .await;
 
-    if notes_result.is_err() || contacts_result.is_err() {
+    if store_result.is_err() || notes_result.is_err() || contacts_result.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
     // Return the freshly aggregated department list
     match sqlx::query_as::<_, (String, i64)>(
         r#"
-        SELECT dep.value AS name, COUNT(*) AS cnt
-        FROM notes,
-             json_each(COALESCE(notes.departments, '[]')) AS dep
-        WHERE json_type(COALESCE(notes.departments, '[]')) IS NOT NULL
-          AND notes.deleted_at IS NULL
-        GROUP BY LOWER(dep.value)
-        ORDER BY cnt DESC, LOWER(dep.value) ASC
+        SELECT name, cnt FROM (
+            SELECT dep.value AS name, COUNT(*) AS cnt, LOWER(dep.value) AS lname
+            FROM notes,
+                 json_each(COALESCE(notes.departments, '[]')) AS dep
+            WHERE json_type(COALESCE(notes.departments, '[]')) IS NOT NULL
+              AND notes.deleted_at IS NULL
+              AND TRIM(dep.value) != ''
+            GROUP BY LOWER(dep.value)
+            UNION
+            SELECT s.name AS name, 0 AS cnt, LOWER(s.name) AS lname
+            FROM departments_store s
+            WHERE TRIM(s.name) != ''
+        )
+        GROUP BY lname
+        ORDER BY cnt DESC, LOWER(name) ASC
         "#,
     )
     .fetch_all(&state.pool)
@@ -1471,7 +1856,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 </head>
 <body>
     <div id="app" class="h-screen flex flex-col">
-        <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-4">
+        <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-1.5">
             <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
                 <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.5
             </h1>
@@ -1480,43 +1865,43 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 <button 
                     @click="activeView = 'dashboard'"
                     :class="activeView === 'dashboard' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
-                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
                     DASHBOARD
                 </button>
                 <button 
                     @click="activeView = 'board'"
                     :class="activeView === 'board' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
-                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
                     BOARD
                 </button>
                 <button 
                     @click="activeView = 'calendar'"
                     :class="activeView === 'calendar' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
-                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
                     KALENDER
                 </button>
                 <button 
-                    @click="activeView = 'addressbook'"
-                    :class="activeView === 'addressbook' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
-                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
-                    ADRESSBUCH
+                    @click="switchView('wiki')"
+                    :class="activeView === 'wiki' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
+                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    WIKI
                 </button>
                 <button 
                     @click="activeView = 'data'"
                     :class="activeView === 'data' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
-                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
+                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors">
                     DATEN
                 </button>
                 <button 
                     @click="toggleTheme" 
                     :title="isDark ? 'Zum hellen Modus wechseln' : 'Zum dunklen Modus wechseln'"
-                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
                     {{ isDark ? '☀' : '☾' }}
                 </button>
                 <button 
                     @click="isSettingsOpen = !isSettingsOpen"
                     title="Einstellungen"
-                    class="px-3 py-1 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
                     ⚙
                 </button>
             </div>
@@ -1527,7 +1912,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     type="text" 
                     v-model="searchQuery" 
                     placeholder="Suchen (Strg+K)..." 
-                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 flex-1 min-w-0"
+                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-0 h-7 text-xs leading-none text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 flex-1 min-w-0"
                 >
                 <div class="timer-anchor relative shrink-0">
                     <button 
@@ -1917,7 +2302,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
             <!-- DASHBOARD VIEW -->
             <template v-if="activeView === 'dashboard'">
                 <div class="flex-1 flex flex-col overflow-hidden">
-                    <div class="flex items-center justify-between mb-1.5 shrink-0">
+                    <div class="h-7 flex items-center justify-between mb-1.5 shrink-0">
                         <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Übersicht</span>
                     </div>
                     <div class="flex-1 overflow-y-auto space-y-3 min-h-0">
@@ -2044,52 +2429,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 </div>
             </template>
 
-            <!-- ADDRESS BOOK VIEW -->
-            <template v-if="activeView === 'addressbook'">
-                <div class="flex-1 flex flex-col overflow-hidden">
-                    <div class="flex items-center justify-between mb-1.5 shrink-0">
-                        <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Adressbuch</span>
-                        <div class="flex items-center gap-2">
-                            <input v-model="contactFilter" type="text" placeholder="Suchen..." class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 w-48">
-                            <button @click="openContactModal()" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors">
-                                + NEU
-                            </button>
-                        </div>
-                    </div>
-                    <div class="flex-1 overflow-y-auto min-h-0">
-                        <div v-if="filteredContacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">Keine Kontakte gefunden.</div>
-                        <table class="w-full text-left border-collapse">
-                            <thead>
-                                <tr class="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase border-b border-zinc-200 dark:border-zinc-800">
-                                    <th class="py-1.5 px-2 font-bold">Name</th>
-                                    <th class="py-1.5 px-2 font-bold">Einrichtung</th>
-                                    <th class="py-1.5 px-2 font-bold">Telefon</th>
-                                    <th class="py-1.5 px-2 font-bold">E-Mail</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="c in filteredContacts" :key="c.id"
-                                    class="border-b border-zinc-100 dark:border-zinc-900 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900"
-                                    :class="highlightContactId === c.id ? 'bg-emerald-100/70 dark:bg-emerald-900/30' : ''"
-                                    @click="openContactModal(c)">
-                                    <td class="py-1.5 px-2 text-xs text-zinc-800 dark:text-zinc-200">{{ c.name }}</td>
-                                    <td class="py-1.5 px-2">
-                                        <span v-if="c.department" class="dept-tag dept-tag-sm">{{ c.department }}</span>
-                                        <span v-else class="text-zinc-400 dark:text-zinc-600 text-[10px]">–</span>
-                                    </td>
-                                    <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.phone || '–' }}</td>
-                                    <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.email || '–' }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </template>
-
             <!-- DATA OVERVIEW VIEW -->
             <template v-if="activeView === 'data'">
                 <div class="flex-1 flex flex-col overflow-hidden">
-                    <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase mb-1.5 shrink-0">Daten-Übersicht</span>
+                    <div class="h-7 flex items-center mb-1.5 shrink-0">
+                        <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Daten-Übersicht</span>
+                    </div>
                     <div class="flex-1 overflow-y-auto space-y-3 min-h-0">
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
                             <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Einrichtungen / Departments</span>
@@ -2098,26 +2443,69 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 <div v-for="d in departments" :key="d.name" class="flex items-center justify-between gap-2 px-2 py-1.5 border border-zinc-200 dark:border-zinc-800">
                                     <span class="text-[11px] text-zinc-800 dark:text-zinc-200">{{ d.name }}</span>
                                     <div class="flex items-center gap-2">
-                                        <span class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ d.count }} Note{{ d.count === 1 ? '' : 'n' }}</span>
+                                        <span class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ d.count }} Notiz{{ d.count === 1 ? '' : 'en' }}</span>
                                         <button @click="deleteDepartment(d.name)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
                                     </div>
                                 </div>
                             </div>
+                            <div class="flex gap-1.5 mt-2">
+                                <input
+                                    v-model="newDeptName"
+                                    type="text"
+                                    placeholder="Neues Department..."
+                                    autocomplete="off"
+                                    @keydown.enter.prevent="createDepartment"
+                                    class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 flex-1 min-w-0 focus:outline-none focus:border-emerald-500"
+                                >
+                                <button @click="createDepartment" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer shrink-0">Erstellen</button>
+                            </div>
+                            <div v-if="deptError" class="text-[10px] text-red-600 dark:text-red-400 mt-1.5">{{ deptError }}</div>
                         </div>
 
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
-                            <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Kontakte (Adressbuch)</span>
-                            <div v-if="contacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">Keine Kontakte angelegt.</div>
-                            <div class="space-y-1 mt-1.5">
-                                <div v-for="c in contacts" :key="c.id" class="flex items-center justify-between gap-2 px-2 py-1.5 border border-zinc-200 dark:border-zinc-800 cursor-pointer hover:border-zinc-400 dark:hover:border-zinc-500" @click="openContactModal(c)">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <span class="text-[11px] text-zinc-800 dark:text-zinc-200">{{ c.name }}</span>
-                                        <span v-if="c.department" class="dept-tag dept-tag-sm">{{ c.department }}</span>
-                                        <span v-if="c.phone" class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ c.phone }}</span>
-                                    </div>
-                                    <button @click.stop="deleteContact(c)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                            <div class="flex items-center justify-between gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-1">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase">Kontakte</span>
+                                <div class="flex items-center gap-2">
+                                    <input v-model="contactFilter" type="text" placeholder="Suchen..." class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 w-48">
+                                    <button @click="openContactModal()" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer transition-colors">
+                                        + NEU
+                                    </button>
                                 </div>
                             </div>
+                            <div v-if="filteredContacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">Keine Kontakte gefunden.</div>
+                            <table v-else class="w-full text-left border-collapse mt-1.5">
+                                <thead>
+                                    <tr class="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase border-b border-zinc-200 dark:border-zinc-800">
+                                        <th class="py-1.5 px-2 font-bold">Name</th>
+                                        <th class="py-1.5 px-2 font-bold">Einrichtung</th>
+                                        <th class="py-1.5 px-2 font-bold">Telefon</th>
+                                        <th class="py-1.5 px-2 font-bold">E-Mail</th>
+                                        <th class="py-1.5 px-2 text-right"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="c in filteredContacts" :key="c.id"
+                                        class="border-b border-zinc-100 dark:border-zinc-900 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                                        :class="highlightContactId === c.id ? 'bg-emerald-100/70 dark:bg-emerald-900/30' : ''"
+                                        @click="openContactModal(c)">
+                                        <td class="py-1.5 px-2 text-xs text-zinc-800 dark:text-zinc-200">{{ c.name }}</td>
+                                        <td class="py-1.5 px-2">
+                                            <div class="flex flex-wrap gap-1">
+                                                <template v-if="getContactDepartments(c).length">
+                                                    <span v-for="dept in getContactDepartments(c).slice(0, 2)" :key="dept" class="dept-tag dept-tag-sm">{{ dept }}</span>
+                                                    <span v-if="getContactDepartments(c).length > 2" class="dept-tag dept-tag-sm">+{{ getContactDepartments(c).length - 2 }}</span>
+                                                </template>
+                                                <span v-else class="text-zinc-400 dark:text-zinc-600 text-[10px]">–</span>
+                                            </div>
+                                        </td>
+                                        <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.phone || '–' }}</td>
+                                        <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.email || '–' }}</td>
+                                        <td class="py-1.5 px-2 text-right">
+                                            <button @click.stop="deleteContact(c)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
 
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
@@ -2154,6 +2542,98 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- WIKI VIEW -->
+            <template v-if="activeView === 'wiki'">
+                <div class="flex-1 flex flex-col overflow-hidden">
+                    <div class="h-7 flex items-center justify-between mb-1.5 shrink-0">
+                        <span class="text-sm font-bold tracking-widest text-zinc-700 dark:text-zinc-300 uppercase">Wiki</span>
+                        <div class="flex items-center gap-2">
+                            <input v-model="wikiFilter" type="text" placeholder="Suchen..." class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 w-48">
+                            <button @click="newWikiPage" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-xs border border-emerald-600 font-semibold cursor-pointer transition-colors">
+                                + NEUE SEITE
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex-1 flex min-h-0 gap-2">
+                        <div class="w-64 shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-2 overflow-y-auto">
+                            <div v-if="filteredWikiPages.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">Keine Wiki-Seiten.</div>
+                            <div
+                                v-for="p in filteredWikiPages"
+                                :key="p.id"
+                                class="px-2 py-1.5 mb-1 text-[11px] cursor-pointer border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-950"
+                                :class="wikiCurrent && wikiCurrent.id === p.id ? 'bg-emerald-100/70 dark:bg-emerald-900/30 border-emerald-300 dark:border-emerald-800 text-zinc-900 dark:text-zinc-100' : 'text-zinc-800 dark:text-zinc-200'"
+                                @click="openWikiPage(p)"
+                            >
+                                <div class="break-all leading-snug">{{ p.title }}</div>
+                                <div v-if="p.updated_at" class="text-[9px] text-zinc-400 dark:text-zinc-600 mt-0.5">{{ fmtWikiDate(p.updated_at) }}</div>
+                            </div>
+                        </div>
+                        <div class="flex-1 min-w-0 flex flex-col border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-2.5 overflow-y-auto">
+                            <div v-if="!wikiCurrent" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">Keine Seite geöffnet — wähle links eine Seite oder erstelle eine neue.</div>
+                            <template v-else>
+                                <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 mb-2">
+                                    Titel
+                                    <input v-model="wikiForm.title" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-sm text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                                </label>
+                                <div class="relative bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col flex-1 min-h-0">
+                                    <div class="flex items-center justify-between mb-1.5 shrink-0">
+                                        <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase border-b border-zinc-200 dark:border-zinc-800 pb-1">Inhalt (Markdown)</span>
+                                        <button @click="wikiPreviewOpen = !wikiPreviewOpen; showAutocomplete = false" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors text-[10px] cursor-pointer">
+                                            {{ wikiPreviewOpen ? 'Bearbeiten' : 'Vorschau' }}
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        ref="wikiTextareaRef"
+                                        v-if="!wikiPreviewOpen"
+                                        v-model="wikiForm.content"
+                                        placeholder="Wiki-Inhalt (Markdown, <<Seitenname>> als Link) ..."
+                                        @input="handleAutocomplete"
+                                        @keyup="updateAutocompletePos"
+                                        @click="updateAutocompletePos"
+                                        @keydown="handleAutocompleteKeydown"
+                                        class="resize-none bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 flex-1 min-h-0 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                                    ></textarea>
+                                    <div v-if="wikiPreviewOpen" class="markdown-body flex-1 min-h-0 overflow-y-auto bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100" v-html="wikiPreviewHtml" @click="handleNoteLinkClick"></div>
+                                    <div ref="wikiCaretMirrorRef" class="absolute invisible whitespace-pre break-all" style="font-family:'Courier New',Courier,Lucida Console,Monaco,monospace; font-size:12px; line-height:16px; padding:10px; border:1px solid transparent; left:0; top:0; z-index:-1; pointer-events:none;"></div>
+                                    <div
+                                        v-if="showAutocomplete"
+                                        :style="{ top: autocompletePos.y + 'px', left: autocompletePos.x + 'px' }"
+                                        class="autocomplete-dropdown bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
+                                    >
+                                        <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
+                                            <span>{{ autocompleteType === 'address' ? 'Kontakt verlinken' : (autocompleteType === 'wiki' ? 'Wiki-Seite verlinken' : 'Notiz verlinken') }}</span>
+                                            <span class="text-zinc-400 dark:text-zinc-600">↑↓ Enter Esc</span>
+                                        </div>
+                                        <button
+                                            v-for="(result, index) in autocompleteResults"
+                                            :key="result.id"
+                                            @click="selectAutocomplete(index)"
+                                            @mousedown.prevent
+                                            class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
+                                            :class="{ 'bg-emerald-100 dark:bg-emerald-900/50': index === autocompleteIndex }"
+                                        >
+                                            <span class="truncate">{{ result.title }}</span>
+                                            <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
+                                        </button>
+                                        <div v-if="autocompleteResults.length === 0" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
+                                            Keine Treffer.
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center mt-2 shrink-0">
+                                    <button v-if="wikiCurrent.id" @click="deleteWikiPage(wikiCurrent.id)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono cursor-pointer">[Seite löschen]</button>
+                                    <span v-else></span>
+                                    <div class="flex items-center gap-2">
+                                        <span v-if="wikiStatus" class="text-[10px]" :class="wikiStatusOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">{{ wikiStatus }}</span>
+                                        <button @click="saveWikiPage" class="bg-emerald-700 hover:bg-emerald-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-emerald-600 cursor-pointer">SPEICHERN</button>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -2270,12 +2750,48 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         <input v-model="contactForm.name" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
-                        Einrichtung (Department)
-                        <input v-model="contactForm.department" type="text" list="contact-dept-list" placeholder="Auswählen oder eingeben..."
-                            class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
-                        <datalist id="contact-dept-list">
-                            <option v-for="d in departments" :key="d.name" :value="d.name"></option>
-                        </datalist>
+                        Einrichtungen (Departments)
+                        <div class="relative">
+                            <div class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 flex flex-wrap gap-1 min-h-[28px] items-center focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
+                                <span v-for="(dept, di) in contactForm.departments" :key="di" class="dept-tag">
+                                    {{ dept }}
+                                    <span @click="removeContactDepartment(di)" class="dept-tag-remove">✕</span>
+                                </span>
+                                <input
+                                    ref="contactDepartmentInputRef"
+                                    type="text"
+                                    v-model="contactDeptInput"
+                                    placeholder="Department hinzufügen..."
+                                    autocomplete="off"
+                                    @focus="openDeptDropdown('contact')"
+                                    @input="onDeptInput"
+                                    @keydown="handleDeptKeydown"
+                                    @blur="closeDeptDropdown"
+                                    class="bg-transparent text-xs text-zinc-900 dark:text-zinc-100 flex-1 min-w-[80px] outline-none"
+                                >
+                            </div>
+                            <div
+                                v-if="deptDropdownOpen && deptDropdownSource === 'contact'"
+                                class="absolute left-0 right-0 top-full mt-1 bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono z-50 max-h-40 overflow-y-auto"
+                            >
+                                <button
+                                    v-for="(dep, index) in filteredDepartments"
+                                    :key="dep.name"
+                                    @mousedown.prevent="selectDepartment(dep.name)"
+                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2 cursor-pointer"
+                                    :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === deptIndex }"
+                                >
+                                    <span class="truncate">{{ dep.name }}</span>
+                                    <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">{{ dep.count }}×</span>
+                                </button>
+                                <div v-if="filteredDepartments.length === 0 && contactDeptInput.trim()" class="px-3 py-1.5">
+                                    <button @mousedown.prevent="addCustomDepartment('contact')" class="w-full text-left text-emerald-600 dark:text-emerald-400 hover:text-emerald-600 dark:text-emerald-300 cursor-pointer text-[11px]">+ "{{ contactDeptInput.trim() }}" erstellen</button>
+                                </div>
+                                <div v-if="filteredDepartments.length === 0 && !contactDeptInput.trim()" class="px-3 py-2 text-zinc-600 dark:text-zinc-500">
+                                    Keine Departments vorhanden.
+                                </div>
+                            </div>
+                        </div>
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                         Telefon
@@ -2461,7 +2977,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 class="autocomplete-dropdown bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
                             >
                                 <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
-                                    <span>Notiz verlinken</span>
+                                    <span>{{ autocompleteType === 'address' ? 'Kontakt verlinken' : (autocompleteType === 'wiki' ? 'Wiki-Seite verlinken' : 'Notiz verlinken') }}</span>
                                     <span class="text-zinc-400 dark:text-zinc-600">↑↓ Enter Esc</span>
                                 </div>
                                 <button 
@@ -2469,8 +2985,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     :key="result.id"
                                     @click="selectAutocomplete(index)"
                                     @mousedown.prevent
-                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
-                                    :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === autocompleteIndex }"
+                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
+                                    :class="{ 'bg-emerald-100 dark:bg-emerald-900/50': index === autocompleteIndex }"
                                 >
                                     <span class="truncate">{{ result.title }}</span>
                                     <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
@@ -2712,7 +3228,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                 class="autocomplete-dropdown bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1 text-xs font-mono overflow-y-auto max-h-56"
                             >
                                 <div class="px-2.5 py-1 text-[10px] text-zinc-600 dark:text-zinc-500 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800 mb-1 flex justify-between items-center">
-                                    <span>Notiz verlinken</span>
+                                    <span>{{ autocompleteType === 'address' ? 'Kontakt verlinken' : (autocompleteType === 'wiki' ? 'Wiki-Seite verlinken' : 'Notiz verlinken') }}</span>
                                     <span class="text-zinc-400 dark:text-zinc-600">↑↓ Enter Esc</span>
                                 </div>
                                 <button 
@@ -2720,8 +3236,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                                     :key="result.id"
                                     @click="selectAutocomplete(index)"
                                     @mousedown.prevent
-                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
-                                    :class="{ 'bg-zinc-200 dark:bg-zinc-800': index === autocompleteIndex }"
+                                    class="w-full text-left px-3 py-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 flex justify-between items-center gap-2"
+                                    :class="{ 'bg-emerald-100 dark:bg-emerald-900/50': index === autocompleteIndex }"
                                 >
                                     <span class="truncate">{{ result.title }}</span>
                                     <span class="text-zinc-600 dark:text-zinc-500 text-[10px] shrink-0">#{{ result.id }}</span>
@@ -2763,7 +3279,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         >
                             <div class="flex items-center gap-1.5 mb-1">
                                 <span class="font-bold text-zinc-900 dark:text-zinc-100 break-all">{{ contactPopover.contact.name }}</span>
-                                <span v-if="contactPopover.contact.department" class="dept-tag dept-tag-sm">{{ contactPopover.contact.department }}</span>
+                                <span v-for="dept in getContactDepartments(contactPopover.contact).slice(0, 2)" :key="dept" class="dept-tag dept-tag-sm">{{ dept }}</span>
+                                <span v-if="getContactDepartments(contactPopover.contact).length > 2" class="dept-tag dept-tag-sm">+{{ getContactDepartments(contactPopover.contact).length - 2 }}</span>
                             </div>
                             <div class="text-[9px] text-zinc-400 dark:text-zinc-600 capitalize mb-1">Kontakt</div>
                             <div class="space-y-0.5 text-zinc-700 dark:text-zinc-300">
@@ -2838,6 +3355,21 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
         </div>
 
         <!-- Shortcut help overlay -->
+        <!-- Confirm dialog -->
+        <div v-if="confirmOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-[90]" @click.self="confirmCancel">
+            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-md shadow-2xl" @click.stop>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center">
+                    <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">Bestätigung</span>
+                    <button @click="confirmCancel" class="ml-3 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
+                </div>
+                <div class="p-3 text-sm text-zinc-800 dark:text-zinc-200 whitespace-pre-line">{{ confirmMessage }}</div>
+                <div class="bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-end gap-2">
+                    <button @click="confirmCancel" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 px-3 py-1 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer">Abbrechen</button>
+                    <button @click="confirmAccept" class="bg-red-700 hover:bg-red-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-red-600 cursor-pointer">{{ confirmOkLabel }}</button>
+                </div>
+            </div>
+        </div>
+
         <div v-if="shortcutHelpOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-3 z-50" @click.self="shortcutHelpOpen = false">
             <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-md shadow-2xl" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center">
@@ -2883,6 +3415,29 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const newAptHasEnd = ref(false)
                 const isNewNoteOpen = ref(false)
                 const shortcutHelpOpen = ref(false)
+                const confirmOpen = ref(false)
+                const confirmMessage = ref('')
+                const confirmOkLabel = ref('Löschen')
+                let confirmAction = null
+                const requestConfirm = (msg, action, okLabel = 'Löschen') => {
+                    confirmMessage.value = msg
+                    confirmOkLabel.value = okLabel
+                    confirmAction = action || null
+                    confirmOpen.value = true
+                }
+                const confirmAccept = () => {
+                    const a = confirmAction
+                    confirmOpen.value = false
+                    confirmAction = null
+                    if (a) {
+                        const r = a()
+                        if (r && r.catch) r.catch(() => {})
+                    }
+                }
+                const confirmCancel = () => {
+                    confirmOpen.value = false
+                    confirmAction = null
+                }
                 const draftTs = ref(null)
                 const draftRestored = ref(false)
                 const newNoteTitleInputRef = ref(null)
@@ -2900,6 +3455,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const searchInputRef = ref(null)
                 const textareaRef = ref(null)
                 const caretMirrorRef = ref(null)
+                const wikiTextareaRef = ref(null)
+                const wikiCaretMirrorRef = ref(null)
 
                 const isModalOpen = ref(false)
                 const isPreviewMode = ref(false)
@@ -2920,9 +3477,9 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const modalAptHasEnd = ref(false)
 
                 // Views / navigation
-                const activeView = ref(localStorage.getItem('notice-view') || 'dashboard')
+                const activeView = ref((localStorage.getItem('notice-view') === 'addressbook' ? 'data' : localStorage.getItem('notice-view')) || 'dashboard')
                 watch(activeView, (v) => localStorage.setItem('notice-view', v))
-                const calViewMode = ref('week')
+                const calViewMode = ref('month')
                 const calCursor = ref(new Date())
                 const calSelectedDay = ref(null)
 
@@ -2961,10 +3518,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 // Settings (trash purge)
                 const trashPurgeEnabled = ref(localStorage.getItem('notice-trashpurge-enabled') === '1')
-                const trashPurgeDay = ref(parseInt(localStorage.getItem('notice-trashpurge-day') || '30', 10) || 30)
+                const trashPurgeDay = ref(parseInt(localStorage.getItem('notice-trashpurge-day') ?? '30', 10) ?? 30)
                 watch([trashPurgeEnabled, trashPurgeDay], () => {
                     localStorage.setItem('notice-trashpurge-enabled', trashPurgeEnabled.value ? '1' : '0')
-                    localStorage.setItem('notice-trashpurge-day', String(trashPurgeDay.value || 30))
+                    localStorage.setItem('notice-trashpurge-day', String(trashPurgeDay.value ?? 30))
                 })
                 const trashPurging = ref(false)
                 const purgeTrash = async (days) => {
@@ -2983,9 +3540,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         trashPurging.value = false
                     }
                 }
-                const runTrashPurgeNow = async () => {
-                    if (!confirm('Papierkorb jetzt aufräumen? Alle Elemente, die älter als ' + (trashPurgeDay.value || 30) + ' Tage sind, werden endgültig gelöscht.')) return
-                    await purgeTrash(trashPurgeDay.value || 30)
+                const runTrashPurgeNow = () => {
+                    requestConfirm('Papierkorb jetzt endgültig leeren? Alle Notizen und Kontakte im Papierkorb werden unwiderruflich gelöscht.', () => purgeTrash(0), 'Aufräumen')
                 }
 
                 // Import preview
@@ -3015,11 +3571,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 // Department suggestions (for new note form & detail modal)
                 const departments = ref([])
+                const newDeptName = ref('')
+                const deptError = ref('')
                 const deptDropdownOpen = ref(false)
                 const deptDropdownSource = ref('')
                 const deptIndex = ref(0)
                 const newNoteDepartmentInputRef = ref(null)
                 const modalDepartmentInputRef = ref(null)
+                const contactDeptInput = ref('')
+                const contactDepartmentInputRef = ref(null)
 
                 const contextMenu = ref({
                     show: false,
@@ -3104,15 +3664,31 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                 const contacts = ref([])
                 const contactFilter = ref('')
                 const contactModalOpen = ref(false)
-                const contactForm = ref({ id: null, name: '', department: '', phone: '', email: '', description: '' })
+                const contactForm = ref({ id: null, name: '', department: '', departments: [], phone: '', email: '', description: '' })
                 const highlightContactId = ref(null)
+                watch(activeView, (v) => {
+                    if (v !== 'data') highlightContactId.value = null
+                })
+
+                const getContactDepartments = (contact) => {
+                    try {
+                        const raw = contact.departments
+                        if (raw && Array.isArray(raw)) return raw.slice()
+                        if (raw && typeof raw === 'string' && raw.trim() && raw.trim() !== '[]') {
+                            const parsed = JSON.parse(raw)
+                            if (Array.isArray(parsed)) return parsed.filter(s => s && s.trim())
+                        }
+                    } catch (e) { /* ignore malformed JSON */ }
+                    if (contact.department && contact.department.trim()) return [contact.department.trim()]
+                    return []
+                }
 
                 const filteredContacts = computed(() => {
                     const q = contactFilter.value.trim().toLowerCase()
                     if (!q) return contacts.value
                     return contacts.value.filter(c =>
                         (c.name || '').toLowerCase().includes(q) ||
-                        (c.department || '').toLowerCase().includes(q) ||
+                        getContactDepartments(c).some(d => d.toLowerCase().includes(q)) ||
                         (c.phone || '').toLowerCase().includes(q) ||
                         (c.email || '').toLowerCase().includes(q)
                     )
@@ -3129,10 +3705,11 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
 
                 const openContactModal = (contact) => {
                     if (contact && contact.id) {
-                        contactForm.value = { ...contact }
+                        contactForm.value = { ...contact, departments: getContactDepartments(contact) }
                     } else {
-                        contactForm.value = { id: null, name: '', department: '', phone: '', email: '', description: '' }
+                        contactForm.value = { id: null, name: '', department: '', departments: [], phone: '', email: '', description: '' }
                     }
+                    contactDeptInput.value = ''
                     contactModalOpen.value = true
                 }
 
@@ -3147,7 +3724,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 name: f.name,
-                                department: f.department || null,
+                                department: f.departments.length ? f.departments[0] : (f.department || null),
+                                departments: JSON.stringify(f.departments || []),
                                 phone: f.phone || null,
                                 email: f.email || null,
                                 description: f.description || null
@@ -3162,36 +3740,175 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                const deleteContact = async (contact) => {
-                    if (!confirm(`Kontakt "${contact.name}" wirklich löschen?`)) return
-                    try {
-                        const res = await fetch(`/api/contacts/${contact.id}`, { method: 'DELETE' })
-                        if (res.ok) {
-                            if (highlightContactId.value === contact.id) highlightContactId.value = null
-                            await fetchContacts()
-                            await fetchTrash()
+                const deleteContact = (contact) => {
+                    requestConfirm(`Kontakt "${contact.name}" wirklich löschen?`, async () => {
+                        try {
+                            const res = await fetch(`/api/contacts/${contact.id}`, { method: 'DELETE' })
+                            if (res.ok) {
+                                if (highlightContactId.value === contact.id) highlightContactId.value = null
+                                await fetchContacts()
+                                await fetchTrash()
+                            }
+                        } catch (e) {
+                            console.error('Fehler beim Löschen des Kontakts', e)
                         }
-                    } catch (e) {
-                        console.error('Fehler beim Löschen des Kontakts', e)
-                    }
+                    })
                 }
 
-                const deleteDepartment = async (name) => {
-                    if (!confirm(`Department "${name}" wirklich löschen? Es wird aus allen Notizen und Kontakten entfernt.`)) return
+                const createDepartment = async () => {
+                    const name = newDeptName.value.trim()
+                    if (!name) return
+                    deptError.value = ''
                     try {
-                        const res = await fetch('/api/departments/delete', {
+                        const res = await fetch('/api/departments', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ name })
                         })
                         if (res.ok) {
-                            departments.value = await res.json()
-                            await fetchNotes()
-                            await fetchContacts()
+                            newDeptName.value = ''
+                            await fetchDepartments()
+                        } else if (res.status === 409) {
+                            deptError.value = 'Department existiert bereits.'
+                        } else {
+                            deptError.value = 'Fehler beim Erstellen.'
                         }
                     } catch (e) {
-                        console.error('Fehler beim Löschen des Departments', e)
+                        console.error('Fehler beim Erstellen des Departments', e)
+                        deptError.value = 'Fehler beim Erstellen.'
                     }
+                }
+
+                // --- Wiki ---
+                const wikiPages = ref([])
+                const wikiFilter = ref('')
+                const wikiCurrent = ref(null)
+                const wikiForm = ref({ id: null, title: '', content: '' })
+                const wikiPreviewOpen = ref(false)
+                const wikiStatus = ref('')
+                const wikiStatusOk = ref(true)
+
+                const filteredWikiPages = computed(() => {
+                    const q = wikiFilter.value.trim().toLowerCase()
+                    if (!q) return wikiPages.value
+                    return wikiPages.value.filter(p =>
+                        (p.title || '').toLowerCase().includes(q) ||
+                        (p.content || '').toLowerCase().includes(q)
+                    )
+                })
+
+                const fmtWikiDate = (ts) => {
+                    if (!ts) return ''
+                    const m = String(ts).match(/^(\d{4})-(\d{2})-(\d{2})/)
+                    return m ? `${m[3]}.${m[2]}.${m[1]}` : String(ts)
+                }
+
+                const wikiPreviewHtml = computed(() => {
+                    if (!wikiForm.value.content) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
+                    return renderMarkdown(wikiForm.value.content, [])
+                })
+
+                const fetchWikiPages = async () => {
+                    try {
+                        const res = await fetch('/api/wiki')
+                        if (res.ok) wikiPages.value = await res.json()
+                    } catch (e) {
+                        console.error('Fehler beim Laden der Wiki-Seiten', e)
+                    }
+                }
+
+                const openWikiPage = (page) => {
+                    wikiCurrent.value = page
+                    wikiForm.value = { id: page.id, title: page.title, content: page.content || '' }
+                    wikiPreviewOpen.value = !!((page.content || '').trim())
+                    wikiStatus.value = ''
+                    showAutocomplete.value = false
+                    autocompleteResults.value = []
+                }
+
+                const newWikiPage = () => {
+                    wikiCurrent.value = { id: null }
+                    wikiForm.value = { id: null, title: '', content: '' }
+                    wikiPreviewOpen.value = false
+                    wikiStatus.value = ''
+                    showAutocomplete.value = false
+                    autocompleteResults.value = []
+                }
+
+                const saveWikiPage = async () => {
+                    const title = wikiForm.value.title.trim()
+                    if (!title) {
+                        wikiStatus.value = 'Titel fehlt.'
+                        wikiStatusOk.value = false
+                        return
+                    }
+                    const isNew = !wikiForm.value.id
+                    const url = isNew ? '/api/wiki' : `/api/wiki/${wikiForm.value.id}`
+                    const method = isNew ? 'POST' : 'PUT'
+                    try {
+                        const res = await fetch(url, {
+                            method,
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ title, content: wikiForm.value.content })
+                        })
+                        if (res.ok) {
+                            const page = await res.json()
+                            wikiStatus.value = 'Gespeichert.'
+                            wikiStatusOk.value = true
+                            await fetchWikiPages()
+                            openWikiPage(page)
+                        } else {
+                            wikiStatus.value = 'Fehler beim Speichern.'
+                            wikiStatusOk.value = false
+                        }
+                    } catch (e) {
+                        console.error('Fehler beim Speichern der Wiki-Seite', e)
+                        wikiStatus.value = 'Fehler beim Speichern.'
+                        wikiStatusOk.value = false
+                    }
+                }
+
+                const deleteWikiPage = (id) => {
+                    requestConfirm('Wiki-Seite wirklich löschen?', async () => {
+                        try {
+                            const res = await fetch(`/api/wiki/${id}`, { method: 'DELETE' })
+                            if (res.ok) {
+                                wikiCurrent.value = null
+                                wikiForm.value = { id: null, title: '', content: '' }
+                                wikiStatus.value = ''
+                                await fetchWikiPages()
+                            }
+                        } catch (e) {
+                            console.error('Fehler beim Löschen der Wiki-Seite', e)
+                        }
+                    })
+                }
+
+                const switchView = (view) => {
+                    activeView.value = view
+                    showAutocomplete.value = false
+                    autocompleteResults.value = []
+                    if (view === 'wiki' && wikiPages.value.length === 0) fetchWikiPages()
+                    if (view !== 'wiki') wikiStatus.value = ''
+                }
+
+                const deleteDepartment = (name) => {
+                    requestConfirm(`Department "${name}" wirklich löschen? Es wird aus allen Notizen und Kontakten entfernt.`, async () => {
+                        try {
+                            const res = await fetch('/api/departments/delete', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ name })
+                            })
+                            if (res.ok) {
+                                departments.value = await res.json()
+                                await fetchNotes()
+                                await fetchContacts()
+                            }
+                        } catch (e) {
+                            console.error('Fehler beim Löschen des Departments', e)
+                        }
+                    })
                 }
 
                 // --- Dashboard computeds ---
@@ -3310,6 +4027,12 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             input: () => modalDeptInput.value
                         }
                     }
+                    if (deptDropdownSource.value === 'contact') {
+                        return {
+                            val: () => contactDeptInput.value,
+                            input: () => contactDeptInput.value
+                        }
+                    }
                     return {
                         val: () => newNoteDeptInput.value,
                         input: () => newNoteDeptInput.value
@@ -3342,6 +4065,15 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             return
                         }
                         activeNoteDepartments.value.push(name)
+                        modalDeptInput.value = ''
+                    } else if (deptDropdownSource.value === 'contact') {
+                        if (contactForm.value.departments.some(d => d.toLowerCase() === name.toLowerCase())) {
+                            contactDeptInput.value = ''
+                            closeDeptDropdown()
+                            return
+                        }
+                        contactForm.value.departments.push(name)
+                        contactDeptInput.value = ''
                     } else {
                         if (newNoteDepartments.value.some(d => d.toLowerCase() === name.toLowerCase())) {
                             newNoteDeptInput.value = ''
@@ -3349,27 +4081,42 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                             return
                         }
                         newNoteDepartments.value.push(name)
+                        newNoteDeptInput.value = ''
                     }
-                    if (deptDropdownSource.value === 'modal') modalDeptInput.value = ''
-                    else newNoteDeptInput.value = ''
                     closeDeptDropdown()
                 }
 
                 const addCustomDepartment = (source) => {
-                    const input = source === 'modal' ? modalDeptInput.value : newNoteDeptInput.value
+                    let input, target
+                    if (source === 'modal') {
+                        input = modalDeptInput.value
+                        target = activeNoteDepartments.value
+                    } else if (source === 'contact') {
+                        input = contactDeptInput.value
+                        target = contactForm.value.departments
+                    } else {
+                        input = newNoteDeptInput.value
+                        target = newNoteDepartments.value
+                    }
                     const name = input.trim()
                     if (!name) return
-                    const target = source === 'modal' ? activeNoteDepartments.value : newNoteDepartments.value
                     if (!target.some(d => d.toLowerCase() === name.toLowerCase())) {
                         target.push(name)
                     }
                     if (source === 'modal') modalDeptInput.value = ''
+                    else if (source === 'contact') contactDeptInput.value = ''
                     else newNoteDeptInput.value = ''
                     if (source === 'modal') {
                         if (modalDepartmentInputRef.value) modalDepartmentInputRef.value.focus()
+                    } else if (source === 'contact') {
+                        if (contactDepartmentInputRef.value) contactDepartmentInputRef.value.focus()
                     } else {
                         if (newNoteDepartmentInputRef.value) newNoteDepartmentInputRef.value.focus()
                     }
+                }
+
+                const removeContactDepartment = (index) => {
+                    contactForm.value.departments.splice(index, 1)
                 }
 
                 const removeNewNoteDepartment = (index) => {
@@ -3468,6 +4215,8 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         e.stopImmediatePropagation()
                         if (showAutocomplete.value) {
                             cancelAutocomplete()
+                        } else if (confirmOpen.value) {
+                            confirmCancel()
                         } else if (contextMenu.value.show) {
                             closeContextMenu()
                         } else if (deptDropdownOpen.value) {
@@ -3498,6 +4247,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     fetchDepartments()
                     fetchContacts()
                     fetchTrash()
+                    fetchWikiPages()
                     window.addEventListener('keydown', handleGlobalKeydown, { capture: true })
                     document.addEventListener('click', handleGlobalClick)
                     startReminderLoop()
@@ -3842,22 +4592,25 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                const forceDeleteNote = async (id) => {
-                    if (!confirm('Notiz endgültig löschen? Dies kann nicht rückgängig gemacht werden.')) return
-                    const res = await fetch(`/api/notes/${id}/force`, { method: 'DELETE' })
-                    if (res.ok) await fetchTrash()
+                const forceDeleteNote = (id) => {
+                    requestConfirm('Notiz endgültig löschen? Dies kann nicht rückgängig gemacht werden.', async () => {
+                        const res = await fetch(`/api/notes/${id}/force`, { method: 'DELETE' })
+                        if (res.ok) await fetchTrash()
+                    })
                 }
 
-                const forceDeleteContact = async (id) => {
-                    if (!confirm('Kontakt endgültig löschen? Dies kann nicht rückgängig gemacht werden.')) return
-                    const res = await fetch(`/api/contacts/${id}/force`, { method: 'DELETE' })
-                    if (res.ok) await fetchTrash()
+                const forceDeleteContact = (id) => {
+                    requestConfirm('Kontakt endgültig löschen? Dies kann nicht rückgängig gemacht werden.', async () => {
+                        const res = await fetch(`/api/contacts/${id}/force`, { method: 'DELETE' })
+                        if (res.ok) await fetchTrash()
+                    })
                 }
 
-                const clearTrash = async () => {
-                    if (!confirm('Papierkorb wirklich leeren? Alle Elemente werden endgültig gelöscht.')) return
-                    const res = await fetch('/api/trash/clear', { method: 'POST' })
-                    if (res.ok) await fetchTrash()
+                const clearTrash = () => {
+                    requestConfirm('Papierkorb wirklich leeren? Alle Elemente werden endgültig gelöscht.', async () => {
+                        const res = await fetch('/api/trash/clear', { method: 'POST' })
+                        if (res.ok) await fetchTrash()
+                    })
                 }
 
                 const openModal = (note) => {
@@ -3934,12 +4687,16 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     try {
                         const url = autocompleteType.value === 'address'
                             ? `/api/contacts/search?q=${encodeURIComponent(q)}`
-                            : `/api/notes/search?q=${encodeURIComponent(q)}`
+                            : (autocompleteType.value === 'wiki'
+                                ? `/api/wiki/search?q=${encodeURIComponent(q)}`
+                                : `/api/notes/search?q=${encodeURIComponent(q)}`)
                         const res = await fetch(url)
                         if (res.ok) {
                             let data = await res.json()
                             if (autocompleteType.value === 'address') {
                                 data = data.map(c => ({ id: c.id, title: c.name }))
+                            } else if (autocompleteType.value === 'wiki') {
+                                data = data.map(p => ({ id: p.id, title: p.name }))
                             }
                             autocompleteResults.value = data
                             autocompleteIndex.value = 0
@@ -3953,16 +4710,33 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                 }
 
-                const acTextarea = () => isNewNoteOpen.value ? newNoteTextareaRef.value : textareaRef.value
-                const acMirror = () => isNewNoteOpen.value ? newNoteCaretMirrorRef.value : caretMirrorRef.value
-                const acGetContent = () => isNewNoteOpen.value ? (newNoteContent.value || '') : (activeNote.value ? activeNote.value.content : '')
+                const inWikiEditor = () => activeView.value === 'wiki' && !wikiPreviewOpen.value && !!wikiTextareaRef.value
+                const acTextarea = () => {
+                    if (isNewNoteOpen.value) return newNoteTextareaRef.value
+                    if (isModalOpen.value) return textareaRef.value
+                    if (inWikiEditor()) return wikiTextareaRef.value
+                    return null
+                }
+                const acMirror = () => {
+                    if (isNewNoteOpen.value) return newNoteCaretMirrorRef.value
+                    if (isModalOpen.value) return caretMirrorRef.value
+                    if (inWikiEditor()) return wikiCaretMirrorRef.value
+                    return null
+                }
+                const acGetContent = () => {
+                    if (isNewNoteOpen.value) return (newNoteContent.value || '')
+                    if (isModalOpen.value) return (activeNote.value ? activeNote.value.content : '')
+                    if (inWikiEditor()) return (wikiForm.value.content || '')
+                    return ''
+                }
                 const acTextareaValue = () => {
                     const ta = acTextarea()
                     return ta ? ta.value : acGetContent()
                 }
                 const acSetContent = (str) => {
                     if (isNewNoteOpen.value) newNoteContent.value = str
-                    else if (activeNote.value) activeNote.value.content = str
+                    else if (isModalOpen.value) { if (activeNote.value) activeNote.value.content = str }
+                    else if (inWikiEditor()) wikiForm.value.content = str
                 }
 
                 const updateAutocompletePos = () => {
@@ -4026,7 +4800,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         const start = Math.min(autocompleteStart.value, cursor)
                         const removeFrom = Math.max(0, start - 2)
                         const before = text.substring(removeFrom, start)
-                        if (before === '[[' || before === '{{') {
+                        if (before === '[[' || before === '{{' || before === '<<') {
                             acSetContent(text.substring(0, removeFrom) + text.substring(cursor))
                             const target = removeFrom
                             requestAnimationFrame(() => {
@@ -4049,22 +4823,19 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     const cursor = ta.selectionStart
                     const effectiveCursor = Math.min(cursor, text.length)
 
-                    // Detect the nearest active opener ([[ or {{) before the cursor
+                    // Detect the nearest active opener ([[, {{ or <<) before the cursor
                     const openNote = text.lastIndexOf('[[', effectiveCursor)
                     const openAddr = text.lastIndexOf('{{', effectiveCursor)
+                    const openWiki = text.lastIndexOf('<<', effectiveCursor)
                     let opener = -1
                     let kind = null
-                    if (openNote >= 0 && openNote >= openAddr) {
-                        opener = openNote
-                        kind = 'note'
-                    } else if (openAddr >= 0) {
-                        opener = openAddr
-                        kind = 'address'
-                    } else {
-                        opener = -1
-                        kind = null
+                    const candidates = [[openNote, 'note'], [openAddr, 'address'], [openWiki, 'wiki']]
+                    for (const [idx, k] of candidates) {
+                        if (idx >= 0 && idx > opener) {
+                            opener = idx
+                            kind = k
+                        }
                     }
-
                     if (opener === -1 || !kind) {
                         showAutocomplete.value = false
                         autocompleteType.value = 'note'
@@ -4072,7 +4843,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     }
                     const between = text.substring(opener + 2, effectiveCursor)
                     // Close if the closer already lies between the opener and cursor
-                    const endMarker = kind === 'note' ? ']]' : '}}'
+                    const endMarker = kind === 'note' ? ']]' : (kind === 'address' ? '}}' : '>>')
                     if (between.includes(endMarker)) {
                         showAutocomplete.value = false
                         autocompleteType.value = 'note'
@@ -4100,7 +4871,7 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     if (!ta) return
                     const selected = autocompleteResults.value[index]
                     if (!selected) return
-                    const closer = autocompleteType.value === 'address' ? '}}' : ']]'
+                    const closer = autocompleteType.value === 'address' ? '}}' : (autocompleteType.value === 'wiki' ? '>>' : ']]')
                     const text = acTextareaValue()
                     const cursor = Math.min(ta.selectionStart, text.length)
                     const start = Math.min(autocompleteStart.value, cursor)
@@ -4148,6 +4919,19 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         handleAddressLinkClick(e)
                         return
                     }
+                    const wikiLink = e.target.closest('.wiki-link')
+                    if (wikiLink) {
+                        const title = wikiLink.getAttribute('data-wiki-title')
+                        const page = wikiPages.value.find(p => p.title === title)
+                        if (page) {
+                            if (isModalOpen.value) closeModal()
+                            switchView('wiki')
+                            openWikiPage(page)
+                        } else {
+                            alert(`Wiki-Seite "${title}" nicht gefunden.`)
+                        }
+                        return
+                    }
                     const link = e.target.closest('.note-link')
                     if (!link) return
                     e.preventDefault()
@@ -4167,6 +4951,18 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                         const safeDisplay = (display || name).replace(/"/g, '&quot;')
                         return `<a class="note-link address-link" data-address-name="${safeName}">${safeDisplay}</a>`
                     })
+                }
+
+                // --- Wiki links in preview: <<Page-Title|Display-Name>> ---
+                const processWikiLinks = (html) => {
+                    return html
+                        .replace(/&lt;/g, '<')
+                        .replace(/&gt;/g, '>')
+                        .replace(/<<([^>|]+)(?:\|([^>]+))?>>/g, (match, title, display) => {
+                            const safeTitle = title.replace(/"/g, '&quot;')
+                            const safeDisplay = (display || title).replace(/"/g, '&quot;')
+                            return `<a class="note-link wiki-link" data-wiki-title="${safeTitle}">${safeDisplay}</a>`
+                        })
                 }
 
                 const hideContactPopover = () => {
@@ -4204,10 +5000,10 @@ const FRONTEND_HTML: &str = r#"<!DOCTYPE html>
                     const contact = contacts.value.find(c => (c.name || '') === name)
                     if (contact) {
                         highlightContactId.value = contact.id
-                        activeView.value = 'addressbook'
+                        activeView.value = 'data'
                     } else {
                         highlightContactId.value = null
-                        activeView.value = 'addressbook'
+                        activeView.value = 'data'
                         contactFilter.value = name
                     }
                 }
@@ -4429,7 +5225,7 @@ const isAppointmentOverdue = (apt) => {
                     startupChecksDone = true
                     await autoArchiveDone()
                     if (trashPurgeEnabled.value) {
-                        await purgeTrash(trashPurgeDay.value || 30)
+                        await purgeTrash(trashPurgeDay.value ?? 30)
                     }
                     collectOverdueReminders({ skipNotify: true })
                 }
@@ -4718,7 +5514,7 @@ const isAppointmentOverdue = (apt) => {
                     const DISALLOWED = new Set(['script', 'style', 'iframe', 'object', 'embed', 'meta', 'link', 'form', 'textarea', 'select', 'option', 'video', 'audio', 'source', 'track', 'canvas', 'svg', 'math', 'template', 'title', 'base', 'applet', 'frame', 'frameset', 'noframes', 'noscript'])
                     const UNWRAP = new Set(['header', 'footer', 'aside', 'section', 'article', 'nav', 'main', 'figure', 'figcaption', 'summary', 'details', 'mark', 'small', 'sub', 'sup', 'kbd', 'samp', 'var', 'q', 'cite', 'abbr', 'time', 'ins', 'u', 'b', 'i', 'font', 'center', 'div2', 'span2'])
                     const ALLOWED_ATTRS = {
-                        'A': new Set(['class', 'data-note-title', 'data-address-name', 'href', 'target', 'rel']),
+                        'A': new Set(['class', 'data-note-title', 'data-address-name', 'data-wiki-title', 'href', 'target', 'rel']),
                         'IMG': new Set(['src', 'alt', 'title']),
                         'SPAN': new Set(['style', 'class']),
                         'DIV': new Set(['class']),
@@ -4792,7 +5588,7 @@ const isAppointmentOverdue = (apt) => {
                 const renderMarkdown = (content, checklist) => {
                     if (!content) return '<p class="text-zinc-600 dark:text-zinc-500">Kein Inhalt vorhanden.</p>'
                     let html = marked.parse(centerBlocks(content))
-                    html = processAddressLinks(processNoteLinks(html))
+                    html = processAddressLinks(processNoteLinks(processWikiLinks(html)))
                     let idx = 0
                     html = html.replace(/<input[^>]*disabled[^>]*type="checkbox"[^>]*>/g, () => {
                         const cur = idx++
@@ -5625,6 +6421,13 @@ const isAppointmentOverdue = (apt) => {
                     newNoteTextareaRef,
                     newNoteCaretMirrorRef,
                     newNoteStepInputRef,
+                    wikiTextareaRef,
+                    wikiCaretMirrorRef,
+                    confirmOpen,
+                    confirmMessage,
+                    confirmOkLabel,
+                    confirmAccept,
+                    confirmCancel,
                     columns,
                     notes,
                     notesById,
@@ -5764,6 +6567,29 @@ const isAppointmentOverdue = (apt) => {
                     fetchContacts,
                     openContactModal,
                     saveContact,
+                    getContactDepartments,
+                    contactDeptInput,
+                    contactDepartmentInputRef,
+                    removeContactDepartment,
+                    newDeptName,
+                    deptError,
+                    createDepartment,
+                    wikiPages,
+                    wikiFilter,
+                    wikiCurrent,
+                    wikiForm,
+                    wikiPreviewOpen,
+                    wikiStatus,
+                    wikiStatusOk,
+                    filteredWikiPages,
+                    wikiPreviewHtml,
+                    fmtWikiDate,
+                    fetchWikiPages,
+                    openWikiPage,
+                    newWikiPage,
+                    saveWikiPage,
+                    deleteWikiPage,
+                    switchView,
                     deleteContact,
                     deleteDepartment,
                     dashboardTodayEvents,
