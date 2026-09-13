@@ -36,7 +36,8 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 
 - Android SDK (cmdline-tools, platform-tools, `platforms;android-34`,
   `build-tools;34.0.0`) und NDK (`ndk;28.2.13676358`), z. B. über `sdkmanager`
-- JDK 17–22 (`JAVA_HOME`) – neuere Versionen sind mit Gradle 8.7 nicht getestet
+- JDK 17–22 für Gradle (`JAVA_HOME`) – fehlt ein passendes JDK (z. B. nur Java 25),
+  lädt `build-apk.sh` automatisch JDK 21 nach `~/.cache/notice-jdk/`
 - Rust mit Target `aarch64-linux-android` und `cargo-ndk`
 - Gradle wird automatisch über den Wrapper bezogen (Gradle 8.7, AGP 8.5.2)
 
