@@ -227,11 +227,31 @@ Table `contacts` (in `contacts.db`):
 
 ## `// PROJECT STRUCTURE`
 
-- `src/main.rs` – the whole app (Rust backend, database setup, embedded HTML/JS frontend).
-- `notice.db` – SQLite database for notes, created at runtime (in `.gitignore`).
-- `contacts.db` – SQLite database for the address book, created at runtime (in `.gitignore`).
+- `src/` – Rust backend, modular: `main.rs`, `config.rs`, `db.rs`, `models.rs`, `recurrence.rs`, `i18n.rs`, `frontend.rs`, `api/*`.
+- `frontend/` – HTML/JS frontend (Vue 3 + Tailwind, vendored): `index.html` (template), `app.js`, `vendor/`, `i18n/*.json` (de/en/es/fr).
+- `android/` – native Android-Wrapper (WebView-Host für den Rust-Server), baut eine APK.
+- `notice.db` / `contacts.db` – SQLite-Datenbanken, zur Laufzeit erzeugt (in `.gitignore`).
+- `config.toml` – Einstellungen (Sprache, Thema, Auto-Archiv, Papierkorb, Server), automatisch erzeugt.
 - `screenshots/` – screenshots of the UI (dashboard, board, calendar, address book, data, detail modal).
 - `AGENTS.md` – extra notes for development assistants.
+
+---
+
+## `// ANDROID-APP (APK)`
+
+In `android/` liegt eine schlanke native Verpackung der Web-App: eine Android-Activity mit
+Vollbild-WebView startet den cross-kompilierten Rust-Server über `ProcessBuilder` und lädt
+`http://127.0.0.1:<Port>/`. Daten (`config.toml`, `notice.db`, `contacts.db`, `backups/`)
+liegen im app-eigenen Verzeichnis. Ein kompletter APK-Build:
+
+```bash
+./build-apk.sh
+# → android/app/build/outputs/apk/debug/app-debug.apk  (arm64-v8a)
+```
+
+Voraussetzungen: Android SDK + NDK (empfohlen `$HOME/android-sdk`), JDK 17–22 und die
+Rust-Targets (`rustup target add aarch64-linux-android`) samt `cargo-ndk`. Das Script prüft
+und richtet alle Pfade selbst ein (weitere Details in `android/README.md`).
 
 ---
 
@@ -240,5 +260,5 @@ Table `contacts` (in `contacts.db`):
 - `sqlx` connects via `sqlite://notice.db?mode=rwc`; `?mode=rwc` creates the file when needed.
 - The SQL queries are runtime strings (no `sqlx::query!` macros) – no compile-time SQL checks.
 - The frontend libraries (Vue production, Tailwind, marked) are **embedded locally** (offline-capable) instead of a CDN.
-- The whole UI and all texts are in **German**.
+- The whole UI is **i18n-ready** (de/en/es/fr, German default) via `frontend/i18n/*.json`; injected as `window.__I18N__`.
 - No test/lint/CI setup; verified via `cargo build` + manual smoke test.
