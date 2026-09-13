@@ -2,7 +2,7 @@
 <html lang="__HTML_LANG__" class="__HTML_CLASS__">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1">
     <title>Notice - Pro Kanban Notes</title>
     <script>
         (function () {
@@ -170,6 +170,73 @@
         .apt-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--apt-bg); border: 1px solid var(--border); font-size: 11px; min-width: 0; overflow: hidden; }
         .apt-item:hover { border-color: var(--border-hover); }
 
+        /* Smartphone / narrow viewport: compact, scrollable, stacked layouts */
+        @media (max-width: 767px) {
+            html, body { height: 100vh; height: 100dvh; }
+
+            header {
+                flex-wrap: wrap;
+                gap: 4px 8px;
+                padding: 6px 8px;
+            }
+            .header-nav {
+                order: 1;
+                width: 100%;
+                justify-content: flex-start !important;
+                flex-wrap: nowrap !important;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            .header-nav::-webkit-scrollbar { display: none; }
+            .header-actions {
+                order: 2;
+                width: 100%;
+            }
+            .header-nav button, .header-nav select { flex: 0 0 auto; }
+
+            .board-cols-grid {
+                display: flex !important;
+                flex-direction: row !important;
+                overflow-x: auto !important;
+                overflow-y: hidden !important;
+                -webkit-overflow-scrolling: touch;
+            }
+            .board-cols-grid > div {
+                flex: 0 0 75vw !important;
+                max-width: 75vw !important;
+            }
+
+            .cal-week-grid {
+                grid-template-columns: repeat(7, minmax(84px, 1fr)) !important;
+            }
+
+            .wiki-split { flex-direction: column !important; }
+            .wiki-side { width: 100% !important; max-height: 36vh; }
+
+            .graph-wrap { flex-direction: column !important; }
+            .graph-side { width: 100% !important; max-height: 36vh; }
+            .graph-wrap > div:first-child { min-height: 40vh; }
+
+            .modal-overlay { padding: 0 !important; }
+            .modal-card {
+                width: 100% !important;
+                max-width: 100% !important;
+                height: 100% !important;
+                height: 100dvh !important;
+                max-height: 100dvh !important;
+            }
+
+            .reminder-panel {
+                left: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                max-width: 100% !important;
+                border-left: none !important;
+                border-right: none !important;
+                border-bottom: none !important;
+            }
+        }
+
         /* Print: clean board output */
         @media print {
             html, body { height: auto !important; overflow: visible !important; background: #fff !important; color: #000 !important; }
@@ -194,7 +261,7 @@
                 <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.6
             </h1>
 
-            <div class="flex gap-1 shrink-0 flex-wrap justify-center">
+            <div class="header-nav flex gap-1 shrink-0 flex-wrap justify-center">
                 <button 
                     @click="activeView = 'dashboard'"
                     :class="activeView === 'dashboard' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
@@ -257,7 +324,7 @@
                 </button>
             </div>
 
-            <div class="flex-1 flex gap-1.5 items-center min-w-0">
+            <div class="header-actions flex-1 flex gap-1.5 items-center min-w-0">
                 <input 
                     ref="searchInputRef"
                     type="text" 
@@ -397,7 +464,7 @@
 
             <!-- Center: expanded columns as a grid -->
             <div 
-                class="flex-1 grid gap-1.5 overflow-hidden transition-all duration-300 min-w-0"
+                class="board-cols-grid flex-1 grid gap-1.5 overflow-hidden transition-all duration-300 min-w-0"
                 :style="{ gridTemplateColumns: gridColsStyle }"
             >
                 <div 
@@ -823,7 +890,8 @@
                                 </div>
                             </div>
                             <div v-if="filteredContacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">{{ t('data.contacts_empty') }}</div>
-                            <table v-else class="w-full text-left border-collapse mt-1.5">
+                            <div v-else class="overflow-x-auto mt-1.5">
+                            <table class="w-full text-left border-collapse">
                                 <thead>
                                     <tr class="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase border-b border-zinc-200 dark:border-zinc-800">
                                         <th class="py-1.5 px-2 font-bold">{{ t('data.name') }}</th>
@@ -856,6 +924,7 @@
                                     </tr>
                                 </tbody>
                             </table>
+                            </div>
                         </div>
 
                         <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
@@ -909,8 +978,8 @@
                             </button>
                         </div>
                     </div>
-                    <div class="flex-1 flex min-h-0 gap-2">
-                        <div class="w-64 shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-2 overflow-y-auto">
+                    <div class="wiki-split flex-1 flex min-h-0 gap-2">
+                        <div class="wiki-side w-64 shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-2 overflow-y-auto">
                             <div v-if="filteredWikiPages.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">{{ t('wiki.empty') }}</div>
                             <div
                                 v-for="p in filteredWikiPages"
@@ -1027,7 +1096,7 @@
                             <button @click="rebuildGraph()" :title="t('graph.layout_recalc')" class="bg-zinc-200 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-2 py-0.5 font-semibold transition-colors cursor-pointer">↻ {{ t('graph.layout') }}</button>
                         </div>
                     </div>
-                    <div class="flex-1 flex min-h-0 gap-2">
+                    <div class="graph-wrap flex-1 flex min-h-0 gap-2">
                         <div ref="graphContainerRef" class="flex-1 relative border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 overflow-hidden cursor-grab select-none">
                             <canvas ref="graphCanvasRef" class="absolute inset-0"
                                 @mousedown="graphMouseDown"
@@ -1039,7 +1108,7 @@
                             <div class="absolute top-2 left-2 text-[10px] text-zinc-400 dark:text-zinc-600 pointer-events-none">{{ graphHint }}</div>
                             <div v-if="graphNodeData.length === 0" class="absolute inset-0 flex items-center justify-center text-[10px] text-zinc-400 dark:text-zinc-600 italic pointer-events-none">{{ t('graph.no_data') }}</div>
                         </div>
-                        <div v-if="graphSelectedInfo" class="w-64 shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-2 py-1.5 flex flex-col overflow-y-auto">
+                        <div v-if="graphSelectedInfo" class="graph-side w-64 shrink-0 border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-2 py-1.5 flex flex-col overflow-y-auto">
                             <div class="flex items-center gap-1.5 mb-1 pt-0.5">
                                 <span class="w-2 h-2 rounded-full shrink-0" :style="{ background: graphSelectedInfo.color }"></span>
                                 <span class="text-[11px] font-bold truncate text-zinc-800 dark:text-zinc-200" :title="graphSelectedInfo.label">{{ graphSelectedInfo.label }}</span>
@@ -1275,8 +1344,8 @@
         <input ref="imageUploadInputRef" type="file" accept="image/*" class="hidden" @change="onImageFileSelected">
 
         <!-- New note form -->
-        <div v-if="isNewNoteOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-2 z-40" @keydown.enter="handleNewNoteEnter">
-            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-full flex flex-col shadow-2xl" :class="{ 'h-full': newNoteMarkdownMax }" @click.stop>
+        <div v-if="isNewNoteOpen" class="modal-overlay fixed inset-0 bg-black/80 flex items-center justify-center p-2 z-40" @keydown.enter="handleNewNoteEnter">
+            <div class="modal-card bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-full flex flex-col shadow-2xl" :class="{ 'h-full': newNoteMarkdownMax }" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">{{ t('note.new') }}</span>
                     <button @click="closeNewNote" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
@@ -1524,8 +1593,8 @@
         </div>
 
         <!-- Detail Modal -->
-        <div v-if="isModalOpen" class="fixed inset-0 bg-black/80 flex items-center justify-center p-2 z-50">
-            <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-full flex flex-col shadow-2xl" :class="{ 'h-full': detailMarkdownMax }" @click.stop>
+        <div v-if="isModalOpen" class="modal-overlay fixed inset-0 bg-black/80 flex items-center justify-center p-2 z-50">
+            <div class="modal-card bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 w-full max-w-5xl max-h-full flex flex-col shadow-2xl" :class="{ 'h-full': detailMarkdownMax }" @click.stop>
                 <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0">
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">{{ t('note.edit') }}</span>
                     <button @click="closeModal" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>

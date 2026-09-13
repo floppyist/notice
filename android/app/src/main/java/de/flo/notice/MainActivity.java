@@ -1,8 +1,14 @@
 package de.flo.notice;
 
 import android.app.Activity;
+import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -23,6 +29,11 @@ import java.util.List;
  * gestartet. Arbeitsverzeichnis sind die app-eigenen Dateien (filesDir):
  * config.toml, notice.db, contacts.db und backups liegen dort und
  * überleben Neuinstallationen der Bibliothek.
+ *
+ * Edge-to-Edge-Rendering: Status- und Navigationsleiste sind transparent,
+ * der WebView wird per WindowInsets um den Status- und Display-Cutout-
+ * Bereich gepaddet, damit kein Inhalt hinter Kameraausschnitt oder System-
+ * leisten verdeckt wird.
  */
 public class MainActivity extends Activity {
     private static final String TAG = "Notice";
@@ -36,12 +47,57 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         WebView.setWebContentsDebuggingEnabled(true);
 
+        /* --- Edge-to-Edge: transparente Systemleisten --- */
+        final Window w = getWindow();
+        w.setStatusBarColor(Color.TRANSPARENT);
+        w.setNavigationBarColor(Color.TRANSPARENT);
+
+        /* Display-Cutout im Kurz-Modus (API 28+) */
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            WindowManager.LayoutParams lp = w.getAttributes();
+            lp.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            w.setAttributes(lp);
+        }
+
+        /* Content unter Systemleisten zeichnen (API 30+: modern; älter: legacy flags) */
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            w.setDecorFitsSystemWindows(false);
+        } else {
+            w.getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        }
+
+        /* --- WebView --- */
         webView = new WebView(this);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         webView.setWebViewClient(new WebViewClient());
         setContentView(webView);
+
+        /* WebView per Insets um Status-/Nav-Balken + Display-Cutout padden */
+        webView.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.graphics.Insets barInsets =
+                            insets.getInsets(WindowInsets.Type.systemBars()
+                                    | WindowInsets.Type.displayCutout());
+                    v.setPadding(barInsets.left, barInsets.top,
+                            barInsets.right, barInsets.bottom);
+                } else {
+                    v.setPadding(
+                            insets.getSystemWindowInsetLeft(),
+                            insets.getSystemWindowInsetTop(),
+                            insets.getSystemWindowInsetRight(),
+                            insets.getSystemWindowInsetBottom());
+                }
+                return insets;
+            }
+        });
 
         startServer();
     }
