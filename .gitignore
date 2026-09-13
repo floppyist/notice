@@ -2,3 +2,6 @@
 **.db
 AGENTS.md
 **.opencode
+config.toml
+config.toml.tmp
+/backups
