@@ -12,6 +12,7 @@ import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 
 import java.io.File;
 import java.io.IOException;
@@ -31,9 +32,10 @@ import java.util.List;
  * überleben Neuinstallationen der Bibliothek.
  *
  * Edge-to-Edge-Rendering: Status- und Navigationsleiste sind transparent,
- * der WebView wird per WindowInsets um den Status- und Display-Cutout-
- * Bereich gepaddet, damit kein Inhalt hinter Kameraausschnitt oder System-
- * leisten verdeckt wird.
+ * die WebView liegt in einem FrameLayout, das per WindowInsets um den
+ * Status-/Navigationsbalken und den Display-Cutout gepaddet wird. Dadurch
+ * wird der Inhalt (Header/Buttons) unter der Uhrzeit/Kamera-Linse nach
+ * unten verschoben und nie verdeckt.
  */
 public class MainActivity extends Activity {
     private static final String TAG = "Notice";
@@ -71,15 +73,26 @@ public class MainActivity extends Activity {
         }
 
         /* --- WebView --- */
+        /* Die WebView zeichnet ihren Inhalt trotz View-Padding immer bis an die
+           Ränder (100vh bezieht sich auf die volle WebView-Größe). Damit nichts
+           hinter Uhrzeit/Kamera-Loch landet, wird sie in ein FrameLayout gepackt,
+           das per WindowInsets gepaddet wird - so schrumpft der für die WebView
+           verfügbare Bereich wirklich und die App rückt nach unten. */
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(Color.parseColor("#18181b"));
+        setContentView(root);
+
         webView = new WebView(this);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         webView.setWebViewClient(new WebViewClient());
-        setContentView(webView);
+        root.addView(webView,
+                new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT));
 
-        /* WebView per Insets um Status-/Nav-Balken + Display-Cutout padden */
-        webView.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+        /* Container um Status-/Nav-Balken + Display-Cutout padden */
+        root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
             @Override
             public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
