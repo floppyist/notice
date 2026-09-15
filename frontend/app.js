@@ -338,14 +338,29 @@
                 const wheelMenuOpen = ref(false)
                 const wheelNoteData = ref(null)
                 const wheelCenter = ref({ x: 0, y: 0 })
+                const mobileDraggedNote = ref(null)
+                const mobileDragInsertY = ref(null)
                 let wheelTimer = null
                 let wheelLongPress = false
+                let touchStartX = 0
+                let touchStartY = 0
+                let touchStartTime = 0
+                let touchStartNote = null
+                let mobileLastY = 0
+                let mobileDragging = false
+                let suppressTouchMove = null
                 const wheelStart = (e, note) => {
                     wheelLongPress = false
+                    mobileDragging = false
+                    touchStartNote = note
+                    touchStartX = e.touches ? e.touches[0].clientX : e.clientX
+                    touchStartY = e.touches ? e.touches[0].clientY : e.clientY
+                    touchStartTime = Date.now()
+                    mobileLastY = touchStartY
+                    const el = e.currentTarget
                     if (wheelTimer) clearTimeout(wheelTimer)
                     wheelTimer = setTimeout(() => {
                         wheelLongPress = true
-                        const el = e.currentTarget
                         const rect = el.getBoundingClientRect()
                         wheelCenter.value = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
                         wheelNoteData.value = note
@@ -362,6 +377,102 @@
                         return
                     }
                     openModal(note)
+                }
+                const updateMobileDrop = (y) => {
+                    const cont = document.querySelector('.mobile-board-scroll')
+                    mobileDragInsertY.value = null
+                    if (!cont) return
+                    const draggedId = mobileDraggedNote.value && mobileDraggedNote.value.id
+                    const contRect = cont.getBoundingClientRect()
+                    const scroll = cont.scrollTop || 0
+                    const cards = [...cont.querySelectorAll('.mobile-board-card')]
+                        .filter(c => Number(c.dataset.noteId) !== draggedId)
+                    const viewRects = cards.map(c => c.getBoundingClientRect())
+                    let idx = viewRects.length
+                    for (let i = 0; i < viewRects.length; i++) {
+                        if (y < viewRects[i].top + viewRects[i].height / 2) { idx = i; break }
+                    }
+                    const toLocal = (rv) => rv.top - contRect.top + scroll
+                    if (viewRects.length > 0) {
+                        if (idx === 0) mobileDragInsertY.value = Math.max(0, toLocal(viewRects[0]) - 3)
+                        else if (idx >= viewRects.length) mobileDragInsertY.value = toLocal(viewRects[viewRects.length - 1]) + viewRects[viewRects.length - 1].height + 3
+                        else mobileDragInsertY.value = (toLocal(viewRects[idx - 1]) + viewRects[idx - 1].height + toLocal(viewRects[idx])) / 2
+                    }
+                    if (mobileDraggedNote.value) mobileDraggedNote.value._dropIdx = idx
+                }
+                const finalizeMobileDrop = async () => {
+                    const note = mobileDraggedNote.value
+                    const idx = note && note._dropIdx
+                    if (!note || idx === undefined || idx === null || note.status !== mobileBoardColumn.value) return
+                    const snapshot = { id: note.id, title: note.title, status: note.status, sort_order: note.sort_order }
+                    mobileDragInsertY.value = null
+                    await reorderColumn(mobileBoardColumn.value, note, idx)
+                    pushUndo(t('undo.moved', { title: snapshot.title }), async () => {
+                        const n = notes.value.find(x => x.id === snapshot.id)
+                        if (!n) return
+                        n.status = snapshot.status
+                        n.sort_order = snapshot.sort_order
+                        try {
+                            await fetch(`/api/notes/${snapshot.id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    title: n.title,
+                                    content: n.content,
+                                    status: snapshot.status,
+                                    priority: n.priority,
+                                    due_date: n.due_date,
+                                    sort_order: snapshot.sort_order
+                                })
+                            })
+                        } catch (err) {
+                            console.error('Fehler beim Rückgängig-machen (Verschieben)', err)
+                        }
+                    })
+                }
+                const onMobileTouchMove = (e) => {
+                    const t = e.touches[0]
+                    if (!t) return
+                    mobileLastY = t.clientY
+                    if (mobileDragging) return
+                    if (wheelTimer) { clearTimeout(wheelTimer); wheelTimer = null }
+                    if (wheelMenuOpen.value) return
+                    const moved = Math.abs(t.clientY - touchStartY) + Math.abs(t.clientX - touchStartX)
+                    const held = Date.now() - touchStartTime
+                    if (held >= 300 && moved > 14 && touchStartNote) {
+                        wheelLongPress = true
+                        mobileDragging = true
+                        mobileDraggedNote.value = touchStartNote
+                        if (!suppressTouchMove) {
+                            suppressTouchMove = (ev) => {
+                                ev.preventDefault()
+                                const cont = document.querySelector('.mobile-board-scroll')
+                                if (cont) {
+                                    const r = cont.getBoundingClientRect()
+                                    const y = ev.touches ? ev.touches[0].clientY : ev.clientY
+                                    if (y < r.top + 70) cont.scrollTop -= 12
+                                    else if (y > r.bottom - 70) cont.scrollTop += 12
+                                }
+                            }
+                            document.addEventListener('touchmove', suppressTouchMove, { passive: false })
+                        }
+                        updateMobileDrop(mobileLastY)
+                    }
+                }
+                const onMobileTouchEnd = async () => {
+                    if (wheelTimer) { clearTimeout(wheelTimer); wheelTimer = null }
+                    if (suppressTouchMove) {
+                        document.removeEventListener('touchmove', suppressTouchMove, { passive: false })
+                        suppressTouchMove = null
+                    }
+                    if (mobileDragging) {
+                        mobileDragging = false
+                        wheelLongPress = true
+                        dragCol.value = null
+                        await finalizeMobileDrop()
+                        mobileDraggedNote.value = null
+                        mobileDragInsertY.value = null
+                    }
                 }
                 const wheelSelect = async (target) => {
                     wheelMenuOpen.value = false
@@ -3768,6 +3879,10 @@ const isAppointmentOverdue = (apt) => {
                     wheelSelect,
                     wheelButtonStyle,
                     mobileCardClick,
+                    mobileDraggedNote,
+                    mobileDragInsertY,
+                    onMobileTouchMove,
+                    onMobileTouchEnd,
                     searchQuery,
                     searchInputRef,
                     textareaRef,

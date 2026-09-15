@@ -248,7 +248,7 @@
 <body>
     <div id="app" class="h-screen flex flex-col">
         <header class="relative bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-1.5">
-            <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
+            <h1 class="hidden md:flex text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 items-center gap-2 shrink-0">
                 <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.7
             </h1>
 
@@ -331,7 +331,7 @@
                     :placeholder="t('header.search_placeholder')" 
                     class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2.5 py-0 h-7 text-xs leading-none text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500 flex-1 min-w-0"
                 >
-                <div class="timer-anchor relative shrink-0">
+                <div class="timer-anchor relative shrink-0 hidden md:block">
                     <button 
                         @click="timerOpen = !timerOpen"
                         :title="timerRunning || timerRemaining > 0 ? t('header.timer_running') + ' – ' + fmtTimer() : t('header.timer')"
@@ -536,7 +536,7 @@
                             {{ getNotesByColumn(mobileBoardColumn).length }}
                         </span>
                     </div>
-                    <div class="relative flex-1 overflow-y-auto">
+                    <div class="relative flex-1 overflow-y-auto mobile-board-scroll">
                         <div class="p-1.5 space-y-1.5">
                             <div v-if="getNotesByColumn(mobileBoardColumn).length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">
                                 {{ t('board.empty') }}
@@ -544,12 +544,15 @@
                             <div 
                                 v-for="note in getNotesByColumn(mobileBoardColumn)" 
                                 :key="note.id"
+                                :data-note-id="note.id"
+                                class="mobile-board-card board-card bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group touch-manipulation"
                                 @click="mobileCardClick(note)"
                                 @touchstart="wheelStart($event, note)"
-                                @touchend="wheelCancel"
-                                @touchmove="wheelCancel"
-                                class="board-card bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group touch-manipulation"
+                                @touchmove="onMobileTouchMove($event)"
+                                @touchend="onMobileTouchEnd"
+                                @touchcancel="onMobileTouchEnd"
                                 :class="{
+                                    'opacity-50 ring-2 ring-emerald-500/60': mobileDraggedNote && mobileDraggedNote.id === note.id,
                                     'bg-red-950/10': note.priority === 'high' && note.status !== 'done',
                                     'bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
                                     'bg-zinc-50 dark:bg-zinc-900': note.priority === 'low' && note.status !== 'done',
@@ -592,6 +595,7 @@
                                 </div>
                             </div>
                         </div>
+                        <div v-if="mobileDragInsertY !== null" class="pointer-events-none absolute left-1.5 right-1.5 h-0.5 bg-emerald-500 z-10" :style="{ top: (mobileDragInsertY - 1) + 'px' }"></div>
                     </div>
                 </div>
             </div>
