@@ -101,6 +101,7 @@
                 let autocompleteTimer = null
                 const autocompleteContainerRef = ref(null)
                 const exportMenuOpen = ref(false)
+                const mobileMenuOpen = ref(false)
                 const importFileInputRef = ref(null)
                 const importMode = ref('merge')
                 const trashNotes = ref([])
@@ -127,6 +128,7 @@
                 const autoArchiveDay = ref(appInitApp.auto_archive_day || 1)
                 const trashPurgeEnabled = ref(!!appInitApp.trash_purge_enabled)
                 const trashPurgeDay = ref(appInitApp.trash_purge_day ?? 30)
+                const networkOpen = ref((appInit.server && appInit.server.host === '0.0.0.0') || false)
                 const applyConfig = (cfg) => {
                     if (!cfg || !cfg.app) return
                     const a = cfg.app
@@ -140,6 +142,10 @@
                         document.documentElement.lang = a.language
                     }
                     document.documentElement.classList.toggle('dark', isDark.value)
+                }
+                const toggleNetworkOpen = async () => {
+                    networkOpen.value = !networkOpen.value
+                    await saveConfig({ server: { host: networkOpen.value ? '0.0.0.0' : '127.0.0.1' } })
                 }
                 const saveConfig = async (patch) => {
                     try {
@@ -294,8 +300,7 @@
                     { id: 'backlog', title: 'status.backlog' },
                     { id: 'in_progress', title: 'status.in_progress' },
                     { id: 'review', title: 'status.review' },
-                    { id: 'done', title: 'status.done' },
-                    { id: 'archived', title: 'status.archived' }
+                    { id: 'done', title: 'status.done' }
                 ]
 
                 const statusTitle = (id) => t('status.' + id)
@@ -304,8 +309,7 @@
                     backlog: isBacklogCollapsed,
                     in_progress: isInProgressCollapsed,
                     review: isReviewCollapsed,
-                    done: isDoneCollapsed,
-                    archived: isArchiveCollapsed
+                    done: isDoneCollapsed
                 }
 
                 const isCollapsed = (colId) => collapsedMap[colId] ? collapsedMap[colId].value : false
@@ -329,6 +333,54 @@
                     return parts.join(' ')
                 })
 
+                // --- Mobile board (status pills + single column + wheel menu) ---
+                const mobileBoardColumn = ref('backlog')
+                const wheelMenuOpen = ref(false)
+                const wheelNoteData = ref(null)
+                const wheelCenter = ref({ x: 0, y: 0 })
+                let wheelTimer = null
+                let wheelLongPress = false
+                const wheelStart = (e, note) => {
+                    wheelLongPress = false
+                    if (wheelTimer) clearTimeout(wheelTimer)
+                    wheelTimer = setTimeout(() => {
+                        wheelLongPress = true
+                        const el = e.currentTarget
+                        const rect = el.getBoundingClientRect()
+                        wheelCenter.value = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+                        wheelNoteData.value = note
+                        wheelMenuOpen.value = true
+                    }, 500)
+                }
+                const wheelCancel = () => {
+                    if (wheelTimer) clearTimeout(wheelTimer)
+                    wheelTimer = null
+                }
+                const mobileCardClick = (note) => {
+                    if (wheelLongPress) {
+                        wheelLongPress = false
+                        return
+                    }
+                    openModal(note)
+                }
+                const wheelSelect = async (target) => {
+                    wheelMenuOpen.value = false
+                    wheelLongPress = false
+                    const n = wheelNoteData.value
+                    wheelNoteData.value = null
+                    if (!n) return
+                    if (target === 'archive') { await archiveNote(n); return }
+                    await updateNoteStatus(n, target)
+                }
+                const wheelButtonStyle = (index) => {
+                    const total = 5
+                    const angle = (index * (360 / total)) - 90
+                    const rad = (angle * Math.PI) / 180
+                    const x = Math.round(Math.cos(rad) * 78)
+                    const y = Math.round(Math.sin(rad) * 78)
+                    return { transform: `translate(${x}px, ${y}px)`, left: '50%', top: '50%' }
+                }
+
                 const notes = ref([])
                 const notesById = computed(() => Object.fromEntries(notes.value.map(n => [n.id, n])))
 
@@ -342,6 +394,32 @@
                     } catch (e) {
                         console.error('Fehler beim Laden der Notizen', e)
                     }
+                }
+
+                const archivedNotes = ref([])
+                const fetchArchivedNotes = async () => {
+                    try {
+                        const res = await fetch('/api/archive')
+                        if (res.ok) archivedNotes.value = await res.json()
+                    } catch (e) {
+                        console.error('Fehler beim Laden des Archivs', e)
+                    }
+                }
+                const restoreFromArchive = async (id) => {
+                    try {
+                        await fetch(`/api/archive/${id}/restore`, { method: 'POST' })
+                        await fetchArchivedNotes()
+                        await fetchNotes()
+                        await fetchDepartments()
+                    } catch (e) { console.error('Fehler beim Archiv-Rückgängig', e) }
+                }
+                const hardDeleteArchived = (id) => {
+                    requestConfirm(t('confirm.delete_note_force'), async () => {
+                        try {
+                            await fetch(`/api/archive/${id}`, { method: 'DELETE' })
+                            await fetchArchivedNotes()
+                        } catch (e) { console.error('Fehler beim Archiv-Löschen', e) }
+                    })
                 }
 
                 const fetchDepartments = async () => {
@@ -359,7 +437,7 @@
                 const contacts = ref([])
                 const contactFilter = ref('')
                 const contactModalOpen = ref(false)
-                const contactForm = ref({ id: null, name: '', department: '', departments: [], phone: '', email: '', description: '' })
+                const contactForm = ref({ id: null, name: '', title: '', department: '', departments: [], phone: '', mobile: '', fax: '', email: '', description: '' })
                 const highlightContactId = ref(null)
                 watch(activeView, (v) => {
                     if (v !== 'data') highlightContactId.value = null
@@ -383,8 +461,11 @@
                     if (!q) return contacts.value
                     return contacts.value.filter(c =>
                         (c.name || '').toLowerCase().includes(q) ||
+                        (c.title || '').toLowerCase().includes(q) ||
                         getContactDepartments(c).some(d => d.toLowerCase().includes(q)) ||
                         (c.phone || '').toLowerCase().includes(q) ||
+                        (c.mobile || '').toLowerCase().includes(q) ||
+                        (c.fax || '').toLowerCase().includes(q) ||
                         (c.email || '').toLowerCase().includes(q)
                     )
                 })
@@ -402,7 +483,7 @@
                     if (contact && contact.id) {
                         contactForm.value = { ...contact, departments: getContactDepartments(contact) }
                     } else {
-                        contactForm.value = { id: null, name: '', department: '', departments: [], phone: '', email: '', description: '' }
+                        contactForm.value = { id: null, name: '', title: '', department: '', departments: [], phone: '', mobile: '', fax: '', email: '', description: '' }
                     }
                     contactDeptInput.value = ''
                     contactModalOpen.value = true
@@ -419,9 +500,12 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 name: f.name,
+                                title: f.title || null,
                                 department: f.departments.length ? f.departments[0] : (f.department || null),
                                 departments: JSON.stringify(f.departments || []),
                                 phone: f.phone || null,
+                                mobile: f.mobile || null,
+                                fax: f.fax || null,
                                 email: f.email || null,
                                 description: f.description || null
                             })
@@ -866,6 +950,7 @@
                     const inside = (sel) => t && t.closest ? !!t.closest(sel) : false
                     if (contextMenu.value.show && !inside('.fmt-menu')) contextMenu.value.show = false
                     if (exportMenuOpen.value && !inside('.daten-anchor')) exportMenuOpen.value = false
+                    if (mobileMenuOpen.value && !inside('.burger')) mobileMenuOpen.value = false
                     if (timerOpen.value && !inside('.timer-anchor')) timerOpen.value = false
                     if (reminderOpen.value && !inside('.reminder-panel')) reminderOpen.value = false
                 }
@@ -923,6 +1008,8 @@
                             isSettingsOpen.value = false
                         } else if (exportMenuOpen.value) {
                             exportMenuOpen.value = false
+                        } else if (mobileMenuOpen.value) {
+                            mobileMenuOpen.value = false
                         } else if (timerOpen.value) {
                             timerOpen.value = false
                         } else if (shortcutHelpOpen.value) {
@@ -943,6 +1030,7 @@
                     fetchDepartments()
                     fetchContacts()
                     fetchTrash()
+                    fetchArchivedNotes()
 fetchWikiPages()
                     if (activeView.value === 'graph') {
                         rebuildGraph()
@@ -1161,50 +1249,48 @@ fetchWikiPages()
                     }
                 }
 
-                const exportJson = () => {
-                    if (notes.value.length === 0) return
-                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(notes.value, null, 2))
+                const downloadText = (filename, content, mime) => {
+                    if (window.NoticeBridge && typeof window.NoticeBridge.saveFile === 'function') {
+                        window.NoticeBridge.saveFile(filename, content, mime || 'text/plain')
+                        return
+                    }
+                    const dataStr = "data:" + (mime || 'text/plain') + ";charset=utf-8," + encodeURIComponent(content)
                     const downloadAnchor = document.createElement('a')
                     downloadAnchor.setAttribute("href", dataStr)
-                    downloadAnchor.setAttribute("download", "kanban_notes_export.json")
+                    downloadAnchor.setAttribute("download", filename)
                     document.body.appendChild(downloadAnchor)
                     downloadAnchor.click()
                     downloadAnchor.remove()
                 }
 
+                const exportJson = () => {
+                    if (notes.value.length === 0) return
+                    downloadText('kanban_notes_export.json', JSON.stringify(notes.value, null, 2), 'application/json')
+                }
+
                 const exportCsv = () => {
                     if (notes.value.length === 0) return
-                    let csvContent = "data:text/csv;charset=utf-8,ID,Title,Status,Priority,Date,DueDate,Departments,Appointments\r\n";
+                    let csvContent = "ID,Title,Status,Priority,Date,DueDate,Departments,Appointments\r\n";
                     notes.value.forEach(note => {
                         const depts = getDepartments(note).join('; ')
                         const appts = getAppointments(note).map(a => `${a.title} (${a.start})`).join('; ')
                         let row = [note.id, `"${note.title.replace(/"/g, '""')}"`, note.status, note.priority, note.date, note.due_date || '', `"${depts.replace(/"/g, '""')}"`, `"${appts.replace(/"/g, '""')}"`];
                         csvContent += row.join(",") + "\r\n";
                     });
-                    const encodedUri = encodeURI(csvContent);
-                    const downloadAnchor = document.createElement('a');
-                    downloadAnchor.setAttribute("href", encodedUri);
-                    downloadAnchor.setAttribute("download", "kanban_notes_export.csv");
-                    document.body.appendChild(downloadAnchor);
-                    downloadAnchor.click();
-                    downloadAnchor.remove();
+                    downloadText('kanban_notes_export.csv', csvContent, 'text/csv')
                 }
 
                 const exportFullBackup = () => {
                     const data = {
                         app: 'notice',
-                        version: '1.5',
+                        version: '1.7',
                         exported: new Date().toISOString(),
                         notes: notes.value,
-                        contacts: contacts.value
+                        contacts: contacts.value,
+                        wikiPages: wikiPages.value
                     }
-                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2))
-                    const downloadAnchor = document.createElement('a')
-                    downloadAnchor.setAttribute("href", dataStr)
-                    downloadAnchor.setAttribute("download", `notice_backup_${new Date().toISOString().slice(0, 10)}.json`)
-                    document.body.appendChild(downloadAnchor)
-                    downloadAnchor.click()
-                    downloadAnchor.remove()
+                    downloadText(`notice_backup_${new Date().toISOString().slice(0, 10)}.json`,
+                        JSON.stringify(data, null, 2), 'application/json')
                 }
 
                 const startImport = (mode) => {
@@ -1229,13 +1315,14 @@ fetchWikiPages()
                     }
                     const pnotes = Array.isArray(data) ? data : (Array.isArray(data.notes) ? data.notes : null)
                     const pcontacts = (!Array.isArray(data) && Array.isArray(data.contacts)) ? data.contacts : []
+                    const pwiki = (!Array.isArray(data) && Array.isArray(data.wikiPages)) ? data.wikiPages : []
                     if (!pnotes) {
                         alert(t('import.no_notes'))
                         return
                     }
                     existingCount.value = notes.value.length
                     existingContactCount.value = contacts.value.length
-                    pendingImport.value = { fileName: file.name, mode: importMode.value, notes: pnotes, contacts: pcontacts }
+                    pendingImport.value = { fileName: file.name, mode: importMode.value, notes: pnotes, contacts: pcontacts, wiki: pwiki }
                 }
 
                 const confirmImport = async () => {
@@ -1246,15 +1333,16 @@ fetchWikiPages()
                         const res = await fetch('/api/import', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ mode: imp.mode, notes: imp.notes, contacts: imp.contacts })
+                            body: JSON.stringify({ mode: imp.mode, notes: imp.notes, contacts: imp.contacts, wiki: imp.wiki })
                         })
                         if (res.ok) {
                             const r = await res.json()
-                            alert(t('import.done', { notes: r.notes_imported, skipped: r.notes_skipped, contacts: r.contacts_imported, contact_skipped: r.contacts_skipped }))
+                            alert(t('import.done', { notes: r.notes_imported, skipped: r.notes_skipped, contacts: r.contacts_imported, contact_skipped: r.contacts_skipped }) + (r.wiki_imported ? ' / ' + r.wiki_imported + ' Wiki' : ''))
                             await fetchNotes()
                             await fetchContacts()
                             await fetchDepartments()
                             await fetchTrash()
+                            await fetchWikiPages()
                         } else {
                             alert(t('import.failed'))
                         }
@@ -1731,33 +1819,25 @@ fetchWikiPages()
                 // --- Archive / restore ---
                 const archiveNote = async (note) => {
                     const snapshot = { ...note }
-                    await updateNoteStatus(note, 'archived')
-                    pushUndo(t('undo.archived', { title: note.title }), async () => {
-                        const n = notes.value.find(x => x.id === snapshot.id)
-                        if (!n) return
-                        n.status = snapshot.status
-                        n.sort_order = snapshot.sort_order
-                        try {
-                            await fetch(`/api/notes/${snapshot.id}`, {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    title: n.title,
-                                    content: n.content,
-                                    status: snapshot.status,
-                                    priority: n.priority,
-                                    due_date: n.due_date,
-                                    sort_order: snapshot.sort_order
-                                })
-                            })
-                        } catch (e) {
-                            console.error('Fehler beim Rückgängig-machen (Archiv)', e)
-                        }
-                    })
+                    try {
+                        await fetch(`/api/notes/${note.id}/archive`, { method: 'POST' })
+                        notes.value = notes.value.filter(n => n.id !== note.id)
+                        await fetchArchivedNotes()
+                        pushUndo(t('undo.archived', { title: note.title }), async () => {
+                            try {
+                                const archived = archivedNotes.value.find(a => a.title === snapshot.title && a.status === 'archived')
+                                if (archived) await restoreFromArchive(archived.id)
+                            } catch (e) {
+                                console.error('Fehler beim Rückgängig-machen (Archiv)', e)
+                            }
+                        })
+                    } catch (e) {
+                        console.error('Fehler beim Archivieren', e)
+                    }
                 }
 
                 const unarchiveNote = async (note) => {
-                    await updateNoteStatus(note, 'backlog')
+                    await restoreFromArchive(note.id)
                 }
 
                 const updateNoteStatus = async (note, newStatus) => {
@@ -1787,11 +1867,26 @@ fetchWikiPages()
                 const autoArchiveDone = async () => {
                     if (!autoArchiveEnabled.value) return
                     const now = new Date()
-                    if (now.getDate() < (autoArchiveDay.value || 1)) return
-                    const candidates = notes.value.filter(n => n.status === 'done')
-                    for (const note of candidates) {
-                        await archiveNote(note)
+                    const yr = now.getFullYear(), mo = now.getMonth()
+                    const daysInMonth = new Date(yr, mo + 1, 0).getDate()
+                    let targetDay = Math.min(autoArchiveDay.value || 1, daysInMonth)
+                    let target = new Date(yr, mo, targetDay)
+                    const dow = target.getDay()
+                    if (dow === 0) target.setDate(target.getDate() + 1)
+                    else if (dow === 6) target.setDate(target.getDate() + 2)
+                    if (target.getMonth() !== mo) {
+                        target = new Date(yr, mo, daysInMonth)
+                        while (target.getDay() === 0 || target.getDay() === 6) target.setDate(target.getDate() - 1)
                     }
+                    const todayStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0')
+                    const targetStr = target.getFullYear() + '-' + String(target.getMonth() + 1).padStart(2, '0') + '-' + String(target.getDate()).padStart(2, '0')
+                    if (todayStr !== targetStr) return
+                    const markerKey = 'notice-auto-archive-' + yr + '-' + String(mo + 1).padStart(2, '0')
+                    if (localStorage.getItem(markerKey)) return
+                    const candidates = notes.value.filter(n => n.status === 'done')
+                    if (candidates.length === 0) return
+                    for (const note of candidates) await archiveNote(note)
+                    localStorage.setItem(markerKey, '1')
                 }
 
                 // --- Overdue appointment reminder (Feature 3) ---
@@ -2948,6 +3043,25 @@ const isAppointmentOverdue = (apt) => {
                     setTimeout(apply, 250)
                 }
 
+                // Week view mobile: single day via prev/next arrows
+                const calWeekDayIndex = ref((new Date().getDay() + 6) % 7)
+                const calWeekShift = (delta) => {
+                    const idx = calWeekDayIndex.value + delta
+                    if (delta < 0 && idx < 0) {
+                        const prev = new Date(calCursor.value)
+                        prev.setDate(prev.getDate() - 7)
+                        calCursor.value = prev
+                        calWeekDayIndex.value = 6
+                    } else if (delta > 0 && idx > 6) {
+                        const next = new Date(calCursor.value)
+                        next.setDate(next.getDate() + 7)
+                        calCursor.value = next
+                        calWeekDayIndex.value = 0
+                    } else {
+                        calWeekDayIndex.value = idx
+                    }
+                }
+
                 // Month view: drag & drop to move appointments between days
                 const calDragEv = ref(null)
                 const addDaysToISO = (iso, delta) => {
@@ -3116,8 +3230,8 @@ const isAppointmentOverdue = (apt) => {
                                 type,
                                 key,
                                 label: label || key,
-                                x: prev ? prev.x : (Math.random() - 0.5) * 800,
-                                y: prev ? prev.y : (Math.random() - 0.5) * 500,
+                                x: prev ? prev.x : (Math.random() - 0.5) * 600,
+                                y: prev ? prev.y : (Math.random() - 0.5) * 600,
                                 vx: 0,
                                 vy: 0
                             }
@@ -3195,8 +3309,8 @@ const isAppointmentOverdue = (apt) => {
                             const d2 = dx * dx + dy * dy
                             if (d2 < 0.01) continue
                             const d = Math.sqrt(d2)
-                            let f = 700 / d2
-                            if (f > 25) f = 25
+                            let f = 900 / d2
+                            if (f > 30) f = 30
                             const fx = f * dx / d
                             const fy = f * dy / d
                             a.fx += fx
@@ -3205,7 +3319,7 @@ const isAppointmentOverdue = (apt) => {
                             b.fy -= fy
                         }
                     }
-                    const ideal = 75
+                    const ideal = 110
                     links.forEach(l => {
                         if (!vis[l.a.type] || !vis[l.b.type]) return
                         const dx = l.b.x - l.a.x
@@ -3223,12 +3337,12 @@ const isAppointmentOverdue = (apt) => {
                         if (!vis[n.type]) return
                         n.fx += -n.x * 0.0015
                         n.fy += -n.y * 0.0015
-                        n.vx = (n.vx + n.fx) * 0.92
-                        n.vy = (n.vy + n.fy) * 0.92
-                        if (n.vx > 3) n.vx = 3
-                        else if (n.vx < -3) n.vx = -3
-                        if (n.vy > 3) n.vy = 3
-                        else if (n.vy < -3) n.vy = -3
+                        n.vx = (n.vx + n.fx) * 0.90
+                        n.vy = (n.vy + n.fy) * 0.90
+                        if (n.vx > 4) n.vx = 4
+                        else if (n.vx < -4) n.vx = -4
+                        if (n.vy > 4) n.vy = 4
+                        else if (n.vy < -4) n.vy = -4
                         if (n === graphDragNode) {
                             n.vx = 0
                             n.vy = 0
@@ -3239,7 +3353,7 @@ const isAppointmentOverdue = (apt) => {
                 }
 
                 const graphWarm = () => {
-                    for (let i = 0; i < 150; i++) graphStep()
+                    for (let i = 0; i < 300; i++) graphStep()
                 }
 
                 const graphNodeRadius = (type) => (type === 'dept' ? 10 : 7)
@@ -3545,6 +3659,8 @@ const isAppointmentOverdue = (apt) => {
                     autoArchiveDay,
                     trashPurgeEnabled,
                     trashPurgeDay,
+                    networkOpen,
+                    toggleNetworkOpen,
                     runTrashPurgeNow,
                     purgeTrash,
                     pendingImport,
@@ -3644,6 +3760,14 @@ const isAppointmentOverdue = (apt) => {
                     expandColumn,
                     collapseColumn,
                     gridColsStyle,
+                    mobileBoardColumn,
+                    wheelMenuOpen,
+                    wheelCenter,
+                    wheelStart,
+                    wheelCancel,
+                    wheelSelect,
+                    wheelButtonStyle,
+                    mobileCardClick,
                     searchQuery,
                     searchInputRef,
                     textareaRef,
@@ -3654,6 +3778,7 @@ const isAppointmentOverdue = (apt) => {
                     onPreviewClick,
                     contextMenu,
                     exportMenuOpen,
+                    mobileMenuOpen,
                     openContextMenu,
                     closeContextMenu,
                     applyFormat,
@@ -3679,6 +3804,10 @@ const isAppointmentOverdue = (apt) => {
                     forceDeleteNote,
                     forceDeleteContact,
                     clearTrash,
+                    archivedNotes,
+                    fetchArchivedNotes,
+                    restoreFromArchive,
+                    hardDeleteArchived,
                     openModal,
                     closeModal,
                     addStep,
@@ -3735,6 +3864,8 @@ const isAppointmentOverdue = (apt) => {
                     calSelectedDayEvents,
                     calWeekScrollRef,
                     scrollWeekToNow,
+                    calWeekDayIndex,
+                    calWeekShift,
                     calEventDragStart,
                     calDayDrop,
                     fmtDate,

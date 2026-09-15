@@ -10,6 +10,7 @@
   "header": {
     "data": "Data",
     "language": "Language",
+    "menu": "Menu",
     "new": "NEW",
     "search_placeholder": "Search...",
     "settings": "Settings",
@@ -120,10 +121,14 @@
     "note_count": { "one": "{count} note", "other": "{count} notes" },
     "org": "Department",
     "phone": "Phone",
+    "mobile": "Mobile",
+    "fax": "Fax",
     "restore": "Restore",
     "title": "Data overview",
     "trash": "Trash",
-    "trash_empty": "The trash is empty."
+    "trash_empty": "The trash is empty.",
+    "archive": "Archive",
+    "archive_empty": "The archive is empty."
   },
   "wiki": {
     "content_placeholder": "Wiki content (Markdown... ([[ Note links) (Right-click for formatting)",
@@ -163,13 +168,15 @@
     "time_title": "Time in 24h format (e.g. 14:30)",
     "title_ph": "Note title..."
   },
-  "contact": {
+"contact": {
     "add_dept": "Add department...",
     "create": "create",
     "edit": "Edit contact",
     "new": "New contact",
-    "no_depts": "No departments.",
-    "orgs": "Departments"
+    "no_depts": "No departments available.",
+    "orgs": "Organizations (Departments)",
+    "title": "Title",
+    "title_ph": "Prof. Dr."
   },
   "ac": {
     "contact": "Link contact",
@@ -246,6 +253,9 @@
     "days": "days",
     "delete_after": "Delete after:",
     "month_day": "From day of month:",
+    "network": "Network",
+    "network_hint": "Enables access from other devices on the network (restart required).",
+    "network_open": "Reachable from the network",
     "purge_now": "CLEAN UP NOW",
     "title": "Settings",
     "trash_purge": "Trash auto-deletion",

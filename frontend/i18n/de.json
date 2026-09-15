@@ -10,6 +10,7 @@
   "header": {
     "data": "Daten",
     "language": "Sprache",
+    "menu": "Menü",
     "new": "NEU",
     "search_placeholder": "Suchen...",
     "settings": "Einstellungen",
@@ -120,10 +121,14 @@
     "note_count": { "one": "{count} Notiz", "other": "{count} Notizen" },
     "org": "Einrichtung",
     "phone": "Telefon",
+    "mobile": "Mobil",
+    "fax": "Fax",
     "restore": "Wiederherstellen",
     "title": "Daten-Übersicht",
     "trash": "Papierkorb",
-    "trash_empty": "Papierkorb ist leer."
+    "trash_empty": "Papierkorb ist leer.",
+    "archive": "Archiv",
+    "archive_empty": "Archiv ist leer."
   },
   "wiki": {
     "content_placeholder": "Wiki-Inhalt (Markdown... ([[ Notiz-Links) (Rechtsklick für Formatierung)",
@@ -169,7 +174,9 @@
     "edit": "Kontakt bearbeiten",
     "new": "Neuer Kontakt",
     "no_depts": "Keine Departments vorhanden.",
-    "orgs": "Einrichtungen (Departments)"
+    "orgs": "Einrichtungen (Departments)",
+    "title": "Titel",
+    "title_ph": "Prof. Dr."
   },
   "ac": {
     "contact": "Kontakt verlinken",
@@ -246,6 +253,9 @@
     "days": "Tagen",
     "delete_after": "Löschen nach:",
     "month_day": "Ab Tag des Monats:",
+    "network": "Netzwerk",
+    "network_hint": "Aktiviert den Zugriff von anderen Geräten im Netzwerk (Neustart erforderlich).",
+    "network_open": "Netzwerkweit erreichbar",
     "purge_now": "JETZT AUFRÄUMEN",
     "title": "Einstellungen",
     "trash_purge": "Papierkorb-Autolöschung",

@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 pub struct AppState {
     pub pool: SqlitePool,
     pub db: SqlitePool,
+    pub archive_pool: SqlitePool,
     pub config: Arc<Mutex<Config>>,
     pub created_fresh: bool,
 }
@@ -34,9 +35,12 @@ pub struct Note {
 pub struct Contact {
     pub id: i64,
     pub name: String,
+    pub title: Option<String>,
     pub department: Option<String>,
     pub departments: Option<String>,
     pub phone: Option<String>,
+    pub mobile: Option<String>,
+    pub fax: Option<String>,
     pub email: Option<String>,
     pub description: Option<String>,
 }
@@ -44,9 +48,12 @@ pub struct Contact {
 #[derive(Deserialize)]
 pub struct CreateContact {
     pub name: String,
+    pub title: Option<String>,
     pub department: Option<String>,
     pub departments: Option<String>,
     pub phone: Option<String>,
+    pub mobile: Option<String>,
+    pub fax: Option<String>,
     pub email: Option<String>,
     pub description: Option<String>,
 }
@@ -54,9 +61,12 @@ pub struct CreateContact {
 #[derive(Deserialize)]
 pub struct UpdateContact {
     pub name: Option<String>,
+    pub title: Option<String>,
     pub department: Option<String>,
     pub departments: Option<String>,
     pub phone: Option<String>,
+    pub mobile: Option<String>,
+    pub fax: Option<String>,
     pub email: Option<String>,
     pub description: Option<String>,
 }
@@ -132,11 +142,20 @@ pub struct ImportNote {
 #[derive(Deserialize, Clone)]
 pub struct ImportContact {
     pub name: String,
+    pub title: Option<String>,
     pub department: Option<String>,
     pub departments: Option<String>,
     pub phone: Option<String>,
+    pub mobile: Option<String>,
+    pub fax: Option<String>,
     pub email: Option<String>,
     pub description: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ImportWikiPage {
+    pub title: Option<String>,
+    pub content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +163,7 @@ pub struct ImportPayload {
     pub mode: Option<String>,
     pub notes: Option<Vec<ImportNote>>,
     pub contacts: Option<Vec<ImportContact>>,
+    pub wiki: Option<Vec<ImportWikiPage>>,
 }
 
 #[derive(Deserialize)]

@@ -38,6 +38,9 @@ pub async fn update_config(
     if !Config::THEMES.contains(&new_cfg.app.theme.as_str()) {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    if new_cfg.server.host != "127.0.0.1" && new_cfg.server.host != "0.0.0.0" {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
     if new_cfg.app.auto_archive_day < 1 || new_cfg.app.auto_archive_day > 31 {
         return StatusCode::BAD_REQUEST.into_response();
     }

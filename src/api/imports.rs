@@ -8,12 +8,15 @@ pub async fn import_data(
     let mode = payload.mode.as_deref().unwrap_or("merge");
     let pnotes = payload.notes.unwrap_or_default();
     let pcontacts = payload.contacts.unwrap_or_default();
+    let pwiki = payload.wiki.unwrap_or_default();
     let mut notes_skipped = 0usize;
     let mut contacts_skipped = 0usize;
+    let mut wiki_skipped = 0usize;
 
     if mode == "replace" {
         let _ = sqlx::query("DELETE FROM notes").execute(&state.pool).await;
         let _ = sqlx::query("DELETE FROM contacts").execute(&state.db).await;
+        let _ = sqlx::query("DELETE FROM wiki").execute(&state.pool).await;
     }
 
     let mut notes_imported = 0usize;
@@ -134,8 +137,32 @@ pub async fn import_data(
             Some(d) => normalize_departments(Some(d), c.department.clone()),
             None => normalize_departments(None, department.clone()),
         };
+        let title = c
+            .title
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
         let phone = c
             .phone
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
+        let mobile = c
+            .mobile
+            .clone()
+            .map(|s| {
+                let t = s.trim().to_string();
+                if t.is_empty() { None } else { Some(t) }
+            })
+            .flatten();
+        let fax = c
+            .fax
             .clone()
             .map(|s| {
                 let t = s.trim().to_string();
@@ -160,12 +187,15 @@ pub async fn import_data(
             .flatten();
 
         let res = sqlx::query(
-            "INSERT INTO contacts (name, department, departments, phone, email, description) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO contacts (name, title, department, departments, phone, mobile, fax, email, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&name)
+        .bind(title)
         .bind(department)
         .bind(departments)
         .bind(phone)
+        .bind(mobile)
+        .bind(fax)
         .bind(email)
         .bind(description)
         .execute(&state.db)
@@ -177,11 +207,51 @@ pub async fn import_data(
         }
     }
 
+    let mut wiki_imported = 0usize;
+    for w in &pwiki {
+        let title = match w.title.as_ref().map(|s| s.trim().to_string()) {
+            Some(t) if !t.is_empty() => t,
+            _ => { wiki_skipped += 1; continue; }
+        };
+        if mode == "merge" {
+            let existing: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM wiki WHERE LOWER(title) = LOWER(?) LIMIT 1",
+            )
+            .bind(&title)
+            .fetch_optional(&state.pool)
+            .await
+            .ok()
+            .flatten();
+            if existing.is_some() {
+                wiki_skipped += 1;
+                continue;
+            }
+        }
+        let content = w.content.clone().filter(|s| !s.trim().is_empty());
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let res = sqlx::query(
+            "INSERT INTO wiki (title, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(&title)
+        .bind(content)
+        .bind(&now)
+        .bind(&now)
+        .execute(&state.pool)
+        .await;
+        if res.is_ok() {
+            wiki_imported += 1;
+        } else {
+            wiki_skipped += 1;
+        }
+    }
+
     Json(serde_json::json!({
         "notes_imported": notes_imported,
         "notes_skipped": notes_skipped,
         "contacts_imported": contacts_imported,
-        "contacts_skipped": contacts_skipped
+        "contacts_skipped": contacts_skipped,
+        "wiki_imported": wiki_imported,
+        "wiki_skipped": wiki_skipped
     }))
     .into_response()
 }

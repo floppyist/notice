@@ -1,21 +1,30 @@
 package de.flo.notice;
 
 import android.app.Activity;
+import android.content.ContentValues;
+import android.content.Intent;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.webkit.ValueCallback;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -31,18 +40,18 @@ import java.util.List;
  * config.toml, notice.db, contacts.db und backups liegen dort und
  * überleben Neuinstallationen der Bibliothek.
  *
- * Edge-to-Edge-Rendering: Status- und Navigationsleiste sind transparent,
- * die WebView liegt in einem FrameLayout, das per WindowInsets um den
- * Status-/Navigationsbalken und den Display-Cutout gepaddet wird. Dadurch
- * wird der Inhalt (Header/Buttons) unter der Uhrzeit/Kamera-Linse nach
- * unten verschoben und nie verdeckt.
+ * Edge-to-Edge-Rendering: transparente Systemleisten, FrameLayout-Padding.
+ * JavaScript-Interface `NoticeBridge` fuer Datei-Downloads (Export).
+ * WebChromeClient fuer Datei-Auswahl (Import).
  */
 public class MainActivity extends Activity {
     private static final String TAG = "Notice";
     private static final String BIN = "libnotice.so";
+    private static final int FILE_CHOOSER_REQUEST = 1001;
 
     private Process server;
     private WebView webView;
+    private ValueCallback<Uri[]> fileUploadCallback;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,11 +82,6 @@ public class MainActivity extends Activity {
         }
 
         /* --- WebView --- */
-        /* Die WebView zeichnet ihren Inhalt trotz View-Padding immer bis an die
-           Ränder (100vh bezieht sich auf die volle WebView-Größe). Damit nichts
-           hinter Uhrzeit/Kamera-Loch landet, wird sie in ein FrameLayout gepackt,
-           das per WindowInsets gepaddet wird - so schrumpft der für die WebView
-           verfügbare Bereich wirklich und die App rückt nach unten. */
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#18181b"));
         setContentView(root);
@@ -86,6 +90,38 @@ public class MainActivity extends Activity {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
+
+        /* JS-Interface fuer Datei-Downloads (Export) */
+        webView.addJavascriptInterface(new NoticeBridge(), "NoticeBridge");
+
+        /* WebChromeClient fuer Datei-Auswahl (Import) */
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView webView,
+                                             ValueCallback<Uri[]> filePathCallback,
+                                             FileChooserParams fileChooserParams) {
+                if (fileUploadCallback != null) {
+                    fileUploadCallback.onReceiveValue(null);
+                }
+                fileUploadCallback = filePathCallback;
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.addCategory(Intent.CATEGORY_OPENABLE);
+                intent.setType("*/*");
+                String[] mimeTypes = fileChooserParams.getAcceptTypes();
+                if (mimeTypes != null && mimeTypes.length == 1 && !mimeTypes[0].isEmpty()) {
+                    intent.setType(mimeTypes[0]);
+                }
+                try {
+                    startActivityForResult(Intent.createChooser(intent, "Datei auswählen"), FILE_CHOOSER_REQUEST);
+                } catch (Exception e) {
+                    Log.e(TAG, "Datei-Auswahl fehlgeschlagen", e);
+                    fileUploadCallback.onReceiveValue(null);
+                    fileUploadCallback = null;
+                }
+                return true;
+            }
+        });
+
         webView.setWebViewClient(new WebViewClient());
         root.addView(webView,
                 new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,
@@ -113,6 +149,72 @@ public class MainActivity extends Activity {
         });
 
         startServer();
+    }
+
+    /** Ergebnis der Datei-Auswahl an die WebView zurueckgeben */
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == FILE_CHOOSER_REQUEST) {
+            if (fileUploadCallback != null) {
+                Uri[] results = null;
+                if (resultCode == RESULT_OK && data != null) {
+                    Uri uri = data.getData();
+                    if (uri != null) {
+                        results = new Uri[]{uri};
+                    }
+                }
+                fileUploadCallback.onReceiveValue(results);
+                fileUploadCallback = null;
+            }
+        }
+    }
+
+    /**
+     * JS-Interface fuer Download/Export.
+     * `window.NoticeBridge.saveFile(filename, content, mime)` speichert die
+     * Datei ueber MediaStore (API 29+) oder in die App-spezifische Datei.
+     */
+    private class NoticeBridge {
+        @android.webkit.JavascriptInterface
+        public boolean saveFile(String filename, String content, String mime) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    /* API 29+: MediaStore.Downloads */
+                    ContentValues cv = new ContentValues();
+                    cv.put(MediaStore.Downloads.DISPLAY_NAME, filename);
+                    cv.put(MediaStore.Downloads.MIME_TYPE, mime != null ? mime : "text/plain");
+                    cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                    if (uri != null) {
+                        try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+                            if (os != null) {
+                                os.write(content.getBytes("UTF-8"));
+                                os.flush();
+                                Log.i(TAG, "Datei gespeichert: " + filename);
+                                return true;
+                            }
+                        }
+                    }
+                } else {
+                    /* API < 29: Externer App-Ordner */
+                    File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                    if (dir != null) {
+                        if (!dir.exists()) dir.mkdirs();
+                        File file = new File(dir, filename);
+                        try (FileOutputStream fos = new FileOutputStream(file)) {
+                            fos.write(content.getBytes("UTF-8"));
+                            fos.flush();
+                            Log.i(TAG, "Datei gespeichert: " + file.getAbsolutePath());
+                            return true;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "saveFile fehlgeschlagen: " + filename, e);
+            }
+            return false;
+        }
     }
 
     private void startServer() {
@@ -203,6 +305,7 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
         if (webView != null && webView.canGoBack()) {

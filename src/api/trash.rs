@@ -13,7 +13,7 @@ pub async fn get_trash(State(state): State<AppState>) -> impl IntoResponse {
     .fetch_all(&state.pool)
     .await;
     let contacts = sqlx::query_as::<_, Contact>(
-        "SELECT id, name, department, departments, phone, email, description FROM contacts WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
+        "SELECT id, name, title, department, departments, phone, mobile, fax, email, description FROM contacts WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
     )
     .fetch_all(&state.db)
     .await;

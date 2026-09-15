@@ -179,20 +179,11 @@
                 gap: 4px 8px;
                 padding: 6px 8px;
             }
-            .header-nav {
-                order: 1;
-                width: 100%;
-                justify-content: flex-start !important;
-                flex-wrap: nowrap !important;
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-            .header-nav::-webkit-scrollbar { display: none; }
+            .header-nav { display: none !important; }
             .header-actions {
                 order: 2;
                 width: 100%;
             }
-            .header-nav button, .header-nav select { flex: 0 0 auto; }
 
             .board-cols-grid {
                 display: flex !important;
@@ -256,12 +247,20 @@
 </head>
 <body>
     <div id="app" class="h-screen flex flex-col">
-        <header class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-1.5">
+        <header class="relative bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-3 py-2 flex justify-between items-center shrink-0 gap-1.5">
             <h1 class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2 shrink-0">
-                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.6
+                <span class="inline-block w-2 h-2 bg-emerald-500"></span> NOTICE_V1.7
             </h1>
 
-            <div class="header-nav flex gap-1 shrink-0 flex-wrap justify-center">
+            <button
+                class="burger md:hidden h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-xs font-bold border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400"
+                :title="t('header.menu')"
+                :class="{ 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100': mobileMenuOpen }"
+                @click="mobileMenuOpen = !mobileMenuOpen">
+                ☰
+            </button>
+
+            <div class="header-nav hidden md:flex gap-1 shrink-0 flex-wrap justify-center">
                 <button 
                     @click="activeView = 'dashboard'"
                     :class="activeView === 'dashboard' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'"
@@ -301,10 +300,10 @@
                 <button 
                     @click="toggleTheme" 
                     :title="isDark ? t('header.theme_light') : t('header.theme_dark')"
-                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    class="hidden md:inline-flex h-7 px-3 py-0 items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
                     {{ isDark ? '☀' : '☾' }}
                 </button>
-                <div class="relative shrink-0">
+                <div class="relative shrink-0 hidden md:block">
                     <select 
                         v-model="language" 
                         @change="switchLanguage(language)"
@@ -319,7 +318,7 @@
                 <button 
                     @click="isSettingsOpen = !isSettingsOpen"
                     :title="t('header.settings')"
-                    class="h-7 px-3 py-0 inline-flex items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    class="hidden md:inline-flex h-7 px-3 py-0 items-center justify-center leading-none text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
                     ⚙
                 </button>
             </div>
@@ -414,6 +413,70 @@
                     <input ref="importFileInputRef" type="file" accept=".json,application/json" class="hidden" @change="onImportFile">
                 </div>
             </div>
+
+            <!-- Mobile burger menu -->
+            <div
+                v-if="mobileMenuOpen"
+                class="burger burger-menu md:hidden absolute left-0 right-0 top-full bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 shadow-2xl z-50 py-2 px-2 flex flex-col gap-1"
+            >
+                <button
+                    @click="activeView = 'dashboard'; mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors"
+                    :class="activeView === 'dashboard' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ t('nav.dashboard') }}
+                </button>
+                <button
+                    @click="activeView = 'board'; mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors"
+                    :class="activeView === 'board' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ t('nav.board') }}
+                </button>
+                <button
+                    @click="activeView = 'calendar'; mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors"
+                    :class="activeView === 'calendar' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ t('nav.calendar') }}
+                </button>
+                <button
+                    @click="switchView('wiki'); mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors"
+                    :class="activeView === 'wiki' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ t('nav.wiki') }}
+                </button>
+                <button
+                    @click="activeView = 'graph'; mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors"
+                    :class="activeView === 'graph' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ t('nav.nodes') }}
+                </button>
+                <button
+                    @click="activeView = 'data'; mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors"
+                    :class="activeView === 'data' ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ t('nav.data') }}
+                </button>
+                <div class="border-t border-zinc-200 dark:border-zinc-700 my-1"></div>
+                <button
+                    @click="toggleTheme; mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    {{ isDark ? '☀ ' + t('header.theme_light') : '☾ ' + t('header.theme_dark') }}
+                </button>
+                <select
+                    v-model="language"
+                    @change="switchLanguage(language)"
+                    class="w-full px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400 focus:outline-none"
+                    :title="t('header.language')">
+                    <option value="de">DE</option>
+                    <option value="en">EN</option>
+                    <option value="es">ES</option>
+                    <option value="fr">FR</option>
+                </select>
+                <button
+                    @click="isSettingsOpen = true; mobileMenuOpen = false"
+                    class="w-full text-left px-3 py-2 text-[11px] font-bold tracking-wider border cursor-pointer transition-colors bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:text-emerald-600 dark:hover:text-emerald-400">
+                    ⚙ {{ t('header.settings') }}
+                </button>
+            </div>
         </header>
 
         <main class="flex-1 flex gap-1.5 p-2 overflow-hidden bg-zinc-100 dark:bg-zinc-950">
@@ -442,7 +505,99 @@
                 </select>
             </div>
 
-            <div class="flex-1 flex gap-1.5 min-h-0">
+            <div class="flex-1 flex flex-col gap-1.5 min-h-0 md:hidden">
+
+            <!-- Mobile: status pills -->
+            <div class="flex gap-1 overflow-x-auto shrink-0 pb-0.5">
+                <button 
+                    v-for="col in columns" 
+                    :key="col.id"
+                    @click="mobileBoardColumn = col.id"
+                    class="px-3 py-1 text-[10px] font-bold border cursor-pointer transition-colors whitespace-nowrap"
+                    :class="mobileBoardColumn === col.id ? 'bg-zinc-300 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 border-zinc-400 dark:border-zinc-600' : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:text-zinc-700 dark:text-zinc-300'">
+                    {{ statusTitle(col.id) }} ({{ getNotesByColumn(col.id).length }})
+                </button>
+            </div>
+
+            <!-- Mobile: single column cards -->
+            <div class="flex-1 flex flex-col gap-1.5 min-h-0">
+                <div class="bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800 flex flex-col h-full overflow-hidden">
+                    <div class="bg-zinc-50 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-2.5 py-1.5 flex justify-between items-center shrink-0">
+                        <span class="text-[11px] font-bold tracking-wider text-zinc-700 dark:text-zinc-300 uppercase flex items-center gap-1.5">
+                            <span class="w-1.5 h-1.5" :class="{
+                                'bg-zinc-400 dark:bg-zinc-500': mobileBoardColumn === 'backlog',
+                                'bg-blue-500': mobileBoardColumn === 'in_progress',
+                                'bg-amber-500': mobileBoardColumn === 'review',
+                                'bg-emerald-500': mobileBoardColumn === 'done'
+                            }"></span>
+                            {{ statusTitle(mobileBoardColumn) }}
+                        </span>
+                        <span class="bg-zinc-100 dark:bg-zinc-950 text-zinc-600 dark:text-zinc-400 text-[10px] px-1.5 py-0.5 border border-zinc-200 dark:border-zinc-800">
+                            {{ getNotesByColumn(mobileBoardColumn).length }}
+                        </span>
+                    </div>
+                    <div class="relative flex-1 overflow-y-auto">
+                        <div class="p-1.5 space-y-1.5">
+                            <div v-if="getNotesByColumn(mobileBoardColumn).length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic text-center py-4">
+                                {{ t('board.empty') }}
+                            </div>
+                            <div 
+                                v-for="note in getNotesByColumn(mobileBoardColumn)" 
+                                :key="note.id"
+                                @click="mobileCardClick(note)"
+                                @touchstart="wheelStart($event, note)"
+                                @touchend="wheelCancel"
+                                @touchmove="wheelCancel"
+                                class="board-card bg-zinc-50 dark:bg-zinc-900 border p-2.5 cursor-pointer hover:border-zinc-400 dark:border-zinc-500 transition-colors shadow-sm group touch-manipulation"
+                                :class="{
+                                    'bg-red-950/10': note.priority === 'high' && note.status !== 'done',
+                                    'bg-amber-950/10': note.priority === 'medium' && note.status !== 'done',
+                                    'bg-zinc-50 dark:bg-zinc-900': note.priority === 'low' && note.status !== 'done',
+                                    'bg-emerald-950/15': note.status === 'done'
+                                }"
+                            >
+                                <div class="flex justify-between items-start gap-1 mb-1.5">
+                                    <h3 class="font-bold text-xs text-zinc-900 dark:text-zinc-100 break-all leading-snug pr-1">{{ note.title }}</h3>
+                                    <div class="flex gap-1 shrink-0">
+                                        <button @click.stop="duplicateNote(note)" :title="t('board.duplicate')" class="text-zinc-400 dark:text-zinc-600 hover:text-emerald-600 dark:text-emerald-400 text-[10px] px-1 font-mono">[+]</button>
+                                        <button @click.stop="archiveNote(note)" :title="t('board.archive')" class="text-zinc-400 dark:text-zinc-600 hover:text-zinc-700 dark:text-zinc-300 text-[10px] px-1 font-mono">[A]</button>
+                                        <button @click.stop="deleteNote(note.id)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center text-[10px] text-zinc-600 dark:text-zinc-400 pt-1 border-t border-zinc-200/60 dark:border-zinc-800/60">
+                                    <span v-if="isOverdue(note)" class="text-red-600 dark:text-red-400/90 font-mono flex items-center gap-1">
+                                        <span class="inline-block w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+                                        {{ t('board.overdue') }} ({{ fmtDate(note.due_date) }})
+                                    </span>
+                                    <span v-else-if="isDueSoon(note)" class="text-orange-600 dark:text-orange-400/90 font-mono flex items-center gap-1">
+                                        <span class="inline-block w-1.5 h-1.5 bg-orange-400 rounded-full animate-pulse"></span>
+                                        {{ t('board.due_prefix') }} ({{ fmtDate(note.due_date) }})
+                                    </span>
+                                    <span v-else-if="note.due_date" class="text-zinc-600 dark:text-zinc-500 font-mono">{{ t('common.due') }}: {{ fmtDate(note.due_date) }}</span>
+                                    <span v-else class="text-zinc-400 dark:text-zinc-600 font-mono">{{ t('board.no_date') }}</span>
+                                    <span class="uppercase tracking-widest text-[9px] font-bold px-1 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800" :class="{
+                                        'text-emerald-600 dark:text-emerald-400 border-emerald-500/60 dark:border-emerald-400/50': note.status === 'done',
+                                        'text-red-600 dark:text-red-400 border-red-500/60 dark:border-red-500/50': note.status !== 'done' && note.priority === 'high',
+                                        'text-amber-600 dark:text-amber-400 border-amber-500/60 dark:border-amber-500/50': note.status !== 'done' && note.priority === 'medium',
+                                        'text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-600': note.status !== 'done' && note.priority === 'low'
+                                    }">
+                                        {{ note.status === 'done' ? 'DONE' : note.priority }}
+                                    </span>
+                                </div>
+                                <div class="mt-1 flex flex-col gap-0.5 items-start">
+                                    <span v-if="getChecklistProgress(note)" class="text-[9px] text-emerald-600 dark:text-emerald-400/90 font-mono" :class="{ 'text-emerald-500': getChecklistProgress(note).done === getChecklistProgress(note).total }">
+                                        ✓ {{ getChecklistProgress(note).done }}/{{ getChecklistProgress(note).total }}
+                                    </span>
+                                    <span v-if="getAppointments(note).filter(a => !a.done).length > 0" class="text-[9px] text-violet-600 dark:text-violet-400/90 font-mono">{{ t('common.appointments') }}: {{ getAppointments(note).filter(a => !a.done).length }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <div class="flex-1 hidden md:flex gap-1.5 min-h-0">
 
             <!-- Left: vertical tab stack for minimized columns (archive-like background) -->
             <div v-if="collapsedStatuses.length > 0" class="bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800 flex flex-col items-center h-full overflow-y-auto shrink-0" style="width:40px">
@@ -454,9 +609,9 @@
                     <button 
                         @click="expandColumn(status.id)"
                         class="archive-expand-btn text-zinc-600 dark:text-zinc-500 hover:text-zinc-800 dark:text-zinc-200 flex items-center px-1 py-2 cursor-pointer transition-colors"
-                        :title="status.title + ' ' + t('board.expand')"
+                        :title="statusTitle(status.id) + ' ' + t('board.expand')"
                     >
-                        {{ status.title }}
+                        {{ statusTitle(status.id) }}
                     </button>
                     <span class="text-zinc-400 dark:text-zinc-600 text-[10px] mt-1 leading-none">{{ getNotesByColumn(status.id).length }}</span>
                 </div>
@@ -631,8 +786,8 @@
                         </div>
                     </div>
 
-                    <!-- Week View -->
-                    <div v-if="calViewMode === 'week'" ref="calWeekScrollRef" class="flex-1 overflow-auto" @vue:mounted="scrollWeekToNow">
+                    <!-- Week View (desktop: 7 columns) -->
+                    <div v-if="calViewMode === 'week'" ref="calWeekScrollRef" class="flex-1 overflow-auto hidden md:block" @vue:mounted="scrollWeekToNow">
                         <div class="flex" style="--pix-per-hour:36px">
                             <div class="shrink-0" style="width:32px">
                                 <div class="cal-week-header" style="border-bottom:0">&nbsp;<br>&nbsp;</div>
@@ -658,6 +813,57 @@
                                         </div>
                                         <div 
                                             v-for="(b, bi) in day.blocks" 
+                                            :key="'b'+bi"
+                                            class="cal-timeline-block" :class="b.cls" :title="b.title"
+                                            :style="{ top: (b.startMin / 60) * 36 + 'px', height: (b.heightMin / 60) * 36 + 'px', left: 'calc(' + b.leftPct + '% + 1px)', width: 'calc(' + b.widthPct + '% - 1px)' }"
+                                            @click.stop="openModal(notesById[b.noteId])">
+                                            <span v-if="b.time" class="font-bold">{{ b.time }}</span>
+                                            <span class="block leading-tight">{{ b.aptTitle }}</span>
+                                            <span class="block text-zinc-500 dark:text-zinc-400 leading-tight">{{ b.noteTitle }}</span>
+                                            <span v-if="b.departments && b.departments.length" class="flex flex-wrap gap-0.5 mt-0.5">
+                                                <span v-for="(dept, di) in b.departments" :key="di" class="dept-tag dept-tag-sm">{{ dept }}</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Week View (mobile: single day + prev/next) -->
+                    <div v-if="calViewMode === 'week'" class="flex-1 flex flex-col overflow-hidden md:hidden">
+                        <div class="flex items-center justify-between shrink-0 mb-1">
+                            <button
+                                @click="calWeekShift(-1)"
+                                class="h-7 w-7 inline-flex items-center justify-center text-xs font-bold border cursor-pointer bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:text-emerald-600 dark:hover:text-emerald-400">◀</button>
+                            <span v-if="calWeekDays[calWeekDayIndex]" class="text-[11px] font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                                {{ calWeekDays[calWeekDayIndex].names }} {{ calWeekDays[calWeekDayIndex].date.getDate() }}.
+                            </span>
+                            <button
+                                @click="calWeekShift(1)"
+                                class="h-7 w-7 inline-flex items-center justify-center text-xs font-bold border cursor-pointer bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-800 hover:text-emerald-600 dark:hover:text-emerald-400">▶</button>
+                        </div>
+                        <div class="flex-1 flex overflow-auto" style="--pix-per-hour:36px">
+                            <div class="shrink-0" style="width:32px">
+                                <div class="cal-week-header" style="border-bottom:0">&nbsp;<br>&nbsp;</div>
+                                <div class="relative" style="height:864px;margin-top:2px">
+                                    <div v-for="h in calHours.slice(0, 24)" :key="h" class="cal-timeline-time" :style="{ top: (h * 36) + 'px' }">{{ h }}:00</div>
+                                </div>
+                            </div>
+                            <div v-if="calWeekDays[calWeekDayIndex]" class="flex-1" :key="calWeekDays[calWeekDayIndex].dateStr">
+                                <div class="cal-week-col flex flex-col" :class="{ 'today': calWeekDays[calWeekDayIndex].isToday }" @click="calDayClick(calWeekDays[calWeekDayIndex])">
+                                    <div class="cal-week-header" :class="{ 'today': calWeekDays[calWeekDayIndex].isToday }">
+                                        {{ calWeekDays[calWeekDayIndex].names }}<br>{{ calWeekDays[calWeekDayIndex].date.getDate() }}.
+                                    </div>
+                                    <div class="cal-timeline-lane flex-1 relative" style="height:864px">
+                                        <div v-for="h in calHours.slice(0, 23)" :key="'h'+h" class="cal-timeline-hour" :style="{ top: h * 36 + 'px' }"></div>
+                                        <div v-if="calWeekDays[calWeekDayIndex].allday.length" class="absolute top-0 left-0 right-0 bg-zinc-50/90 dark:bg-zinc-900/90 border-b border-zinc-200 dark:border-zinc-800 px-0.5 py-0.5" style="z-index:3">
+                                            <div v-for="(ev, ei) in calWeekDays[calWeekDayIndex].allday" :key="'a'+ei" class="cal-event-item" :class="ev.cls" :title="ev.title" @click.stop="openModal(notesById[ev.noteId])">
+                                                {{ ev.title }}
+                                            </div>
+                                        </div>
+                                        <div 
+                                            v-for="(b, bi) in calWeekDays[calWeekDayIndex].blocks" 
                                             :key="'b'+bi"
                                             class="cal-timeline-block" :class="b.cls" :title="b.title"
                                             :style="{ top: (b.startMin / 60) * 36 + 'px', height: (b.heightMin / 60) * 36 + 'px', left: 'calc(' + b.leftPct + '% + 1px)', width: 'calc(' + b.widthPct + '% - 1px)' }"
@@ -890,13 +1096,15 @@
                                 </div>
                             </div>
                             <div v-if="filteredContacts.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">{{ t('data.contacts_empty') }}</div>
-                            <div v-else class="overflow-x-auto mt-1.5">
+                            <div v-else class="overflow-x-auto mt-1.5 hidden md:block">
                             <table class="w-full text-left border-collapse">
                                 <thead>
                                     <tr class="text-[10px] text-zinc-500 dark:text-zinc-400 uppercase border-b border-zinc-200 dark:border-zinc-800">
                                         <th class="py-1.5 px-2 font-bold">{{ t('data.name') }}</th>
                                         <th class="py-1.5 px-2 font-bold">{{ t('data.org') }}</th>
                                         <th class="py-1.5 px-2 font-bold">{{ t('data.phone') }}</th>
+                                        <th class="py-1.5 px-2 font-bold">{{ t('data.mobile') }}</th>
+                                        <th class="py-1.5 px-2 font-bold">{{ t('data.fax') }}</th>
                                         <th class="py-1.5 px-2 font-bold">{{ t('data.email') }}</th>
                                         <th class="py-1.5 px-2 text-right"></th>
                                     </tr>
@@ -906,7 +1114,9 @@
                                         class="border-b border-zinc-100 dark:border-zinc-900 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900"
                                         :class="highlightContactId === c.id ? 'bg-emerald-100/70 dark:bg-emerald-900/30' : ''"
                                         @click="openContactModal(c)">
-                                        <td class="py-1.5 px-2 text-xs text-zinc-800 dark:text-zinc-200">{{ c.name }}</td>
+                                        <td class="py-1.5 px-2 text-xs text-zinc-800 dark:text-zinc-200">
+                                            <span class="text-zinc-400 dark:text-zinc-500" v-if="c.title">{{ c.title }} </span>{{ c.name }}
+                                        </td>
                                         <td class="py-1.5 px-2">
                                             <div class="flex flex-wrap gap-1">
                                                 <template v-if="getContactDepartments(c).length">
@@ -916,7 +1126,9 @@
                                                 <span v-else class="text-zinc-400 dark:text-zinc-600 text-[10px]">–</span>
                                             </div>
                                         </td>
-                                        <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.phone || '–' }}</td>
+                                        <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{{ c.phone || '–' }}</td>
+                                        <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{{ c.mobile || '–' }}</td>
+                                        <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{{ c.fax || '–' }}</td>
                                         <td class="py-1.5 px-2 text-xs text-zinc-600 dark:text-zinc-400">{{ c.email || '–' }}</td>
                                         <td class="py-1.5 px-2 text-right">
                                             <button @click.stop="deleteContact(c)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
@@ -924,6 +1136,49 @@
                                     </tr>
                                 </tbody>
                             </table>
+                            </div>
+                            <!-- Mobile card list -->
+                            <div v-if="filteredContacts.length > 0" class="md:hidden mt-1.5 space-y-1">
+                                <div v-for="c in filteredContacts" :key="'mc'+c.id" @click="openContactModal(c)" class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2 cursor-pointer active:bg-zinc-200 dark:active:bg-zinc-800">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0">
+                                            <div class="text-xs font-bold text-zinc-900 dark:text-zinc-100 break-words">
+                                                <span class="text-zinc-400 dark:text-zinc-500 font-normal" v-if="c.title">{{ c.title }} </span>{{ c.name }}
+                                            </div>
+                                            <div v-if="getContactDepartments(c).length" class="mt-0.5 flex flex-wrap gap-1">
+                                                <span v-for="dept in getContactDepartments(c).slice(0, 3)" :key="dept" class="dept-tag dept-tag-sm">{{ dept }}</span>
+                                                <span v-if="getContactDepartments(c).length > 3" class="dept-tag dept-tag-sm">+{{ getContactDepartments(c).length - 3 }}</span>
+                                            </div>
+                                        </div>
+                                        <button @click.stop="deleteContact(c)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0">[X]</button>
+                                    </div>
+                                    <div class="mt-1 space-y-0.5 text-[10px] text-zinc-600 dark:text-zinc-400">
+                                        <div v-if="c.phone" class="flex gap-1"><span class="shrink-0">Tel:</span><span class="break-all">{{ c.phone }}</span></div>
+                                        <div v-if="c.mobile" class="flex gap-1"><span class="shrink-0">Mobil:</span><span class="break-all">{{ c.mobile }}</span></div>
+                                        <div v-if="c.fax" class="flex gap-1"><span class="shrink-0">Fax:</span><span class="break-all">{{ c.fax }}</span></div>
+                                        <div v-if="c.email" class="flex gap-1"><span class="shrink-0">E-Mail:</span><span class="break-all">{{ c.email }}</span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5">
+                            <div class="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-1">
+                                <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase">{{ t('data.archive') }}</span>
+                                <span class="text-[10px] text-zinc-500 dark:text-zinc-400">{{ t('data.element_count', { count: archivedNotes.length }) }}</span>
+                            </div>
+                            <div v-if="archivedNotes.length === 0" class="text-[10px] text-zinc-400 dark:text-zinc-600 italic py-2">{{ t('data.archive_empty') }}</div>
+                            <div class="space-y-1 mt-1.5">
+                                <div v-for="n in archivedNotes" :key="'a' + n.id" class="flex items-center justify-between gap-2 px-2 py-1.5 border border-zinc-200 dark:border-zinc-800">
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        <span class="text-[10px] text-zinc-500 dark:text-zinc-400 font-mono shrink-0">{{ t('data.note') }}</span>
+                                        <span class="text-[11px] text-zinc-800 dark:text-zinc-200 truncate">{{ n.title }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-1.5 shrink-0">
+                                        <button @click="restoreFromArchive(n.id)" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-600 text-zinc-600 dark:text-zinc-400 hover:text-white text-[10px] px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 cursor-pointer">{{ t('data.restore') }}</button>
+                                        <button @click="hardDeleteArchived(n.id)" class="text-zinc-400 dark:text-zinc-600 hover:text-red-600 dark:hover:text-red-400 text-[10px] px-1 font-mono shrink-0" :title="t('data.delete_forever')">[X]</button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -1237,6 +1492,16 @@
                             {{ t('settings.trash_purge_hint', { day: trashPurgeDay }) }}
                         </p>
                     </div>
+                    <div class="bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-2.5 flex flex-col gap-2">
+                        <span class="text-[11px] font-bold text-zinc-700 dark:text-zinc-300 uppercase mb-1 block border-b border-zinc-200 dark:border-zinc-800 pb-1">{{ t('settings.network') }}</span>
+                        <label class="flex items-center gap-2 text-[11px] text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                            <input type="checkbox" v-model="networkOpen" @change="toggleNetworkOpen" class="accent-emerald-600 cursor-pointer">
+                            {{ t('settings.network_open') }}
+                        </label>
+                        <p class="text-[9px] text-zinc-400 dark:text-zinc-600 leading-tight">
+                            {{ t('settings.network_hint') }}
+                        </p>
+                    </div>
                     <button @click="runTrashPurgeNow" class="bg-red-700 hover:bg-red-600 text-white dark:text-zinc-100 px-3 py-1 text-[11px] font-semibold border border-red-600 cursor-pointer self-end">{{ t('settings.purge_now') }}</button>
                 </div>
             </div>
@@ -1253,6 +1518,10 @@
                     <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                         {{ t('common.name') }}
                         <input v-model="contactForm.name" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        {{ t('contact.title') }}
+                        <input v-model="contactForm.title" type="text" :placeholder="t('contact.title_ph')" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                         {{ t('contact.orgs') }}
@@ -1303,6 +1572,14 @@
                         <input v-model="contactForm.phone" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        {{ t('data.mobile') }}
+                        <input v-model="contactForm.mobile" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
+                        {{ t('data.fax') }}
+                        <input v-model="contactForm.fax" type="text" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400">
                         {{ t('common.email') }}
                         <input v-model="contactForm.email" type="email" class="bg-zinc-100 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-emerald-500">
                     </label>
@@ -1350,7 +1627,7 @@
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">{{ t('note.new') }}</span>
                     <button @click="closeNewNote" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
-                <div class="p-3 flex-1 min-h-0 flex flex-col gap-2 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
+                <div class="p-3 flex-1 min-h-0 flex flex-col gap-2 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto overflow-x-hidden">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
                             {{ t('common.title') }}
@@ -1599,7 +1876,7 @@
                     <span class="text-xs font-bold tracking-widest text-emerald-600 dark:text-emerald-400 uppercase">{{ t('note.edit') }}</span>
                     <button @click="closeModal" class="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:text-zinc-100 text-xs font-bold px-2 cursor-pointer">X</button>
                 </div>
-                <div class="p-3 flex-1 min-h-0 flex flex-col gap-2 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto">
+                <div class="p-3 flex-1 min-h-0 flex flex-col gap-2 bg-zinc-100 dark:bg-zinc-950 overflow-y-auto overflow-x-hidden">
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <label class="flex flex-col gap-1 text-[11px] text-zinc-600 dark:text-zinc-400 md:col-span-4">
                             {{ t('common.title') }}
@@ -1780,18 +2057,21 @@
                         <div 
                             v-if="contactPopover.show && contactPopover.contact"
                             :style="{ top: contactPopover.y + 'px', left: contactPopover.x + 'px' }"
-                            class="absolute z-[60] bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1.5 px-2.5 text-[11px] w-56 pointer-events-none"
+                            class="absolute z-[60] bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 shadow-2xl py-1.5 px-2.5 text-[11px] min-w-56 max-w-sm pointer-events-none"
                         >
-                            <div class="flex items-center gap-1.5 mb-1">
+                            <div class="flex items-center gap-1.5 mb-1 flex-wrap">
+                                <span class="text-zinc-400 dark:text-zinc-500 font-normal" v-if="contactPopover.contact.title">{{ contactPopover.contact.title }} </span>
                                 <span class="font-bold text-zinc-900 dark:text-zinc-100 break-all">{{ contactPopover.contact.name }}</span>
                                 <span v-for="dept in getContactDepartments(contactPopover.contact).slice(0, 2)" :key="dept" class="dept-tag dept-tag-sm">{{ dept }}</span>
                                 <span v-if="getContactDepartments(contactPopover.contact).length > 2" class="dept-tag dept-tag-sm">+{{ getContactDepartments(contactPopover.contact).length - 2 }}</span>
                             </div>
                             <div class="text-[9px] text-zinc-400 dark:text-zinc-600 capitalize mb-1">{{ t('graph.contact') }}</div>
                             <div class="space-y-0.5 text-zinc-700 dark:text-zinc-300">
-                                <div v-if="contactPopover.contact.phone" class="flex gap-1"><span class="text-zinc-500 dark:text-zinc-400 shrink-0">Tel:</span><span class="min-w-0">{{ contactPopover.contact.phone }}</span></div>
+                                <div v-if="contactPopover.contact.phone" class="flex gap-1"><span class="text-zinc-500 dark:text-zinc-400 shrink-0">Tel:</span><span class="min-w-0 break-words">{{ contactPopover.contact.phone }}</span></div>
+                                <div v-if="contactPopover.contact.mobile" class="flex gap-1"><span class="text-zinc-500 dark:text-zinc-400 shrink-0">Mobil:</span><span class="min-w-0 break-words">{{ contactPopover.contact.mobile }}</span></div>
+                                <div v-if="contactPopover.contact.fax" class="flex gap-1"><span class="text-zinc-500 dark:text-zinc-400 shrink-0">Fax:</span><span class="min-w-0 break-words">{{ contactPopover.contact.fax }}</span></div>
                                 <div v-if="contactPopover.contact.email" class="flex gap-1"><span class="text-zinc-500 dark:text-zinc-400 shrink-0">E-Mail:</span><span class="min-w-0 break-all">{{ contactPopover.contact.email }}</span></div>
-                                <div v-if="contactPopover.contact.description" class="text-[10px] italic break-all mt-0.5">{{ contactPopover.contact.description }}</div>
+                                <div v-if="contactPopover.contact.description" class="text-[10px] italic break-words mt-0.5">{{ contactPopover.contact.description }}</div>
                             </div>
                         </div>
                             </div>
@@ -1892,8 +2172,39 @@
                     <button @click="shortcutHelpOpen = false" class="bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 px-3 py-1 text-[11px] border border-zinc-300 dark:border-zinc-700 cursor-pointer">{{ t('help.close') }}</button>
                 </div>
             </div>
+</div>
         </div>
-    </div>
+
+        <!-- Mobile wheel menu (long-press on board card) -->
+        <div
+            v-if="wheelMenuOpen"
+            class="fixed inset-0 z-[70] bg-black/40 touch-none"
+            @click="wheelMenuOpen = false"
+            @touchmove.prevent
+        >
+            <div class="absolute w-[190px] h-[190px]" :style="{ left: wheelCenter.x + 'px', top: wheelCenter.y + 'px' }">
+                <button
+                    v-for="(op, idx) in [
+                        { id: 'backlog', label: statusTitle('backlog'), cls: 'bg-zinc-200 dark:bg-zinc-700 border-zinc-300 dark:border-zinc-600 text-zinc-800 dark:text-zinc-200' },
+                        { id: 'in_progress', label: statusTitle('in_progress'), cls: 'bg-blue-200 dark:bg-blue-800/80 border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-100' },
+                        { id: 'review', label: statusTitle('review'), cls: 'bg-amber-200 dark:bg-amber-800/80 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-100' },
+                        { id: 'done', label: statusTitle('done'), cls: 'bg-emerald-200 dark:bg-emerald-800/80 border-emerald-300 dark:border-emerald-700 text-emerald-900 dark:text-emerald-100' },
+                        { id: 'archive', label: t('board.archive'), cls: 'bg-zinc-300 dark:bg-zinc-600 border-zinc-400 dark:border-zinc-500 text-zinc-900 dark:text-zinc-100' }
+                    ]"
+                    :key="op.id"
+                    @click.stop="wheelSelect(op.id)"
+                    class="absolute w-16 h-16 rounded-full border-2 font-bold text-[10px] shadow-lg active:scale-95 transition-transform cursor-pointer"
+                    :class="op.cls"
+                    :style="wheelButtonStyle(idx)"
+                >
+                    {{ op.label }}
+                </button>
+                <button
+                    @click.stop="wheelMenuOpen = false"
+                    class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-9 h-9 rounded-full border bg-zinc-50 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 text-sm font-bold shadow-lg cursor-pointer"
+                >✕</button>
+            </div>
+        </div>
 
     <script>
 __APP_JS__

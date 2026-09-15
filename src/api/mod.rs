@@ -1,6 +1,7 @@
 use crate::models::AppState;
 use axum::{routing::{delete, get, post, put}, Router};
 
+pub mod archive;
 pub mod config;
 pub mod contacts;
 pub mod departments;
@@ -34,6 +35,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/notes/:id/duplicate", post(notes::duplicate_note))
         .route("/api/notes/:id/restore", post(notes::restore_note))
+        .route("/api/notes/:id/archive", post(notes::archive_note))
         .route("/api/notes/:id/force", delete(notes::force_delete_note))
         .route("/api/import", post(imports::import_data))
         .route("/api/trash", get(trash::get_trash))
@@ -48,5 +50,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/contacts/:id/restore", post(contacts::restore_contact))
         .route("/api/contacts/:id/force", delete(contacts::force_delete_contact))
+        .route("/api/archive", get(archive::get_archived))
+        .route("/api/archive/:id/restore", post(archive::restore_from_archive))
+        .route("/api/archive/:id", delete(archive::force_delete_archived))
         .with_state(state)
 }

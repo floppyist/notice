@@ -27,6 +27,7 @@ pub struct ServerConfig {
 pub struct DatabaseConfig {
     pub notice: String,
     pub contacts: String,
+    pub archive: String,
     pub backup_dir: String,
     pub backup_keep: usize,
 }
@@ -53,6 +54,7 @@ impl Default for DatabaseConfig {
         Self {
             notice: "notice.db".into(),
             contacts: "contacts.db".into(),
+            archive: "archive.db".into(),
             backup_dir: "backups".into(),
             backup_keep: 10,
         }

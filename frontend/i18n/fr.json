@@ -10,6 +10,7 @@
   "header": {
     "data": "Données",
     "language": "Langue",
+    "menu": "Menu",
     "new": "NOUVEAU",
     "search_placeholder": "Rechercher...",
     "settings": "Paramètres",
@@ -120,10 +121,14 @@
     "note_count": { "one": "{count} note", "other": "{count} notes" },
     "org": "Département",
     "phone": "Téléphone",
+    "mobile": "Mobile",
+    "fax": "Fax",
     "restore": "Restaurer",
     "title": "Aperçu des données",
     "trash": "Corbeille",
-    "trash_empty": "La corbeille est vide."
+    "trash_empty": "La corbeille est vide.",
+    "archive": "Archives",
+    "archive_empty": "Les archives sont vides."
   },
   "wiki": {
     "content_placeholder": "Contenu wiki (Markdown... ([[ Liens de notes) (Clic droit pour le format)",
@@ -163,13 +168,15 @@
     "time_title": "Heure au format 24 h (ex. 14h30)",
     "title_ph": "Titre de la note..."
   },
-  "contact": {
+"contact": {
     "add_dept": "Ajouter un département...",
     "create": "créer",
     "edit": "Modifier le contact",
     "new": "Nouveau contact",
-    "no_depts": "Aucun département.",
-    "orgs": "Départements"
+    "no_depts": "Aucun département disponible.",
+    "orgs": "Organisations (Départements)",
+    "title": "Titre",
+    "title_ph": "Prof. Dr."
   },
   "ac": {
     "contact": "Lier un contact",
@@ -246,6 +253,9 @@
     "days": "jours",
     "delete_after": "Supprimer après :",
     "month_day": "À partir du jour du mois :",
+    "network": "Réseau",
+    "network_hint": "Permet l'accès depuis d'autres appareils du réseau (redémarrage requis).",
+    "network_open": "Accessible depuis le réseau",
     "purge_now": "NETTOYER MAINTENANT",
     "title": "Paramètres",
     "trash_purge": "Suppression auto de la corbeille",

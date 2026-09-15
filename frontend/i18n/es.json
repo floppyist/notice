@@ -10,6 +10,7 @@
   "header": {
     "data": "Datos",
     "language": "Idioma",
+    "menu": "Menú",
     "new": "NUEVO",
     "search_placeholder": "Buscar...",
     "settings": "Ajustes",
@@ -120,10 +121,14 @@
     "note_count": { "one": "{count} nota", "other": "{count} notas" },
     "org": "Departamento",
     "phone": "Teléfono",
+    "mobile": "Móvil",
+    "fax": "Fax",
     "restore": "Restaurar",
     "title": "Resumen de datos",
     "trash": "Papelera",
-    "trash_empty": "La papelera está vacía."
+    "trash_empty": "La papelera está vacía.",
+    "archive": "Archivo",
+    "archive_empty": "El archivo está vacío."
   },
   "wiki": {
     "content_placeholder": "Contenido de wiki (Markdown... ([[ Enlaces de notas) (Clic derecho para formato)",
@@ -163,13 +168,15 @@
     "time_title": "Hora en formato 24 h (p. ej. 14:30)",
     "title_ph": "Título de la nota..."
   },
-  "contact": {
+"contact": {
     "add_dept": "Añadir departamento...",
     "create": "crear",
     "edit": "Editar contacto",
     "new": "Nuevo contacto",
-    "no_depts": "Sin departamentos.",
-    "orgs": "Departamentos"
+    "no_depts": "No hay departamentos disponibles.",
+    "orgs": "Organizaciones (Departamentos)",
+    "title": "Título",
+    "title_ph": "Prof. Dr."
   },
   "ac": {
     "contact": "Enlazar contacto",
@@ -246,6 +253,9 @@
     "days": "días",
     "delete_after": "Eliminar después de:",
     "month_day": "A partir del día del mes:",
+    "network": "Red",
+    "network_hint": "Permite el acceso desde otros dispositivos de la red (se requiere reiniciar).",
+    "network_open": "Accesible desde la red",
     "purge_now": "LIMPIAR AHORA",
     "title": "Ajustes",
     "trash_purge": "Borrado automático de la papelera",

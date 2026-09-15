@@ -11,7 +11,7 @@ use axum::{
 
 pub async fn get_contacts(State(state): State<AppState>) -> impl IntoResponse {
     match sqlx::query_as::<_, Contact>(
-        "SELECT id, name, department, departments, phone, email, description FROM contacts WHERE deleted_at IS NULL ORDER BY LOWER(name) ASC, id ASC",
+        "SELECT id, name, title, department, departments, phone, mobile, fax, email, description FROM contacts WHERE deleted_at IS NULL ORDER BY LOWER(name) ASC, id ASC",
     )
     .fetch_all(&state.db)
     .await
@@ -34,8 +34,20 @@ pub async fn create_contact(
         payload.department,
     );
     let department = first_department(&Some(departments.clone()));
+    let title = payload
+        .title
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let phone = payload
         .phone
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let mobile = payload
+        .mobile
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let fax = payload
+        .fax
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let email = payload
@@ -48,12 +60,15 @@ pub async fn create_contact(
         .filter(|s| !s.is_empty());
 
     let result = sqlx::query(
-        "INSERT INTO contacts (name, department, departments, phone, email, description) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO contacts (name, title, department, departments, phone, mobile, fax, email, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(name)
+    .bind(title)
     .bind(department)
     .bind(departments)
     .bind(phone)
+    .bind(mobile)
+    .bind(fax)
     .bind(email)
     .bind(description)
     .execute(&state.db)
@@ -114,6 +129,13 @@ pub async fn update_contact(
     // Derive legacy department from the first element of the resolved array.
     let department = first_department(&Some(departments.clone()));
 
+    let title = payload
+        .title
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(existing.title);
     let phone = payload
         .phone
         .map(|s| {
@@ -121,6 +143,20 @@ pub async fn update_contact(
             if t.is_empty() { None } else { Some(t) }
         })
         .unwrap_or(existing.phone);
+    let mobile = payload
+        .mobile
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(existing.mobile);
+    let fax = payload
+        .fax
+        .map(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() { None } else { Some(t) }
+        })
+        .unwrap_or(existing.fax);
     let email = payload
         .email
         .map(|s| {
@@ -137,12 +173,15 @@ pub async fn update_contact(
         .unwrap_or(existing.description);
 
     let result = sqlx::query(
-        "UPDATE contacts SET name = ?, department = ?, departments = ?, phone = ?, email = ?, description = ? WHERE id = ?",
+        "UPDATE contacts SET name = ?, title = ?, department = ?, departments = ?, phone = ?, mobile = ?, fax = ?, email = ?, description = ? WHERE id = ?",
     )
     .bind(name)
+    .bind(title)
     .bind(department)
     .bind(departments)
     .bind(phone)
+    .bind(mobile)
+    .bind(fax)
     .bind(email)
     .bind(description)
     .bind(id)
@@ -230,9 +269,12 @@ pub async fn search_contacts(
     }
     let pattern = format!("%{}%", q);
     match sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, name FROM contacts WHERE LOWER(name) LIKE ? AND deleted_at IS NULL ORDER BY LOWER(name) ASC LIMIT 8",
+        "SELECT id, name FROM contacts WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(title, '')) LIKE ? OR LOWER(COALESCE(mobile, '')) LIKE ? OR LOWER(COALESCE(fax, '')) LIKE ?) AND deleted_at IS NULL ORDER BY LOWER(name) ASC LIMIT 8",
     )
-    .bind(pattern)
+    .bind(&pattern)
+    .bind(&pattern)
+    .bind(&pattern)
+    .bind(&pattern)
     .fetch_all(&state.db)
     .await
     {

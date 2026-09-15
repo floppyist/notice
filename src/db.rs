@@ -111,8 +111,11 @@ pub async fn setup_contacts(db: &SqlitePool) {
         CREATE TABLE IF NOT EXISTS contacts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            title TEXT,
             department TEXT,
             phone TEXT,
+            mobile TEXT,
+            fax TEXT,
             email TEXT,
             description TEXT
         )
@@ -124,6 +127,21 @@ pub async fn setup_contacts(db: &SqlitePool) {
 
     // Migration: add deleted_at column (soft-delete / Papierkorb)
     let _ = sqlx::query("ALTER TABLE contacts ADD COLUMN deleted_at TEXT")
+        .execute(db)
+        .await;
+
+    // Migration: add title (Prof. Dr. etc.) column to contacts
+    let _ = sqlx::query("ALTER TABLE contacts ADD COLUMN title TEXT")
+        .execute(db)
+        .await;
+
+    // Migration: add mobile column to contacts
+    let _ = sqlx::query("ALTER TABLE contacts ADD COLUMN mobile TEXT")
+        .execute(db)
+        .await;
+
+    // Migration: add fax column to contacts
+    let _ = sqlx::query("ALTER TABLE contacts ADD COLUMN fax TEXT")
         .execute(db)
         .await;
 
@@ -164,14 +182,41 @@ pub async fn setup_contacts(db: &SqlitePool) {
     if count == 0 {
         let _ = sqlx::query(
             r#"
-            INSERT INTO contacts (name, department, departments, phone, email, description) VALUES
-                ('Max Mustermann', 'Küche', '["Küche"]', '030 12345678', 'max.mustermann@example.de', 'Küchenchef, verantwortlich für den Speiseplan.'),
-                ('Erika Musterfrau', 'Verwaltung', '["Verwaltung"]', '030 87654321', 'erika.musterfrau@example.de', 'Leiterin der Verwaltung, Ansprechpartnerin für Rechnungen.')
+            INSERT INTO contacts (name, title, department, departments, phone, mobile, fax, email, description) VALUES
+                ('Max Mustermann', 'Prof. Dr.', 'Küche', '["Küche"]', '030 12345678', NULL, NULL, 'max.mustermann@example.de', 'Küchenchef, verantwortlich für den Speiseplan.'),
+                ('Erika Musterfrau', NULL, 'Verwaltung', '["Verwaltung"]', '030 87654321', '0170 1234567', NULL, 'erika.musterfrau@example.de', 'Leiterin der Verwaltung, Ansprechpartnerin für Rechnungen.')
             "#,
         )
         .execute(db)
         .await;
     }
+}
+
+pub async fn setup_archive(pool: &SqlitePool) {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'archived',
+            priority TEXT NOT NULL DEFAULT 'medium',
+            date TEXT NOT NULL,
+            due_date TEXT,
+            department TEXT,
+            departments TEXT,
+            appointments TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            deleted_at TEXT,
+            repeat_rule TEXT,
+            pinned INTEGER NOT NULL DEFAULT 0
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .expect("Fehler beim Erstellen der Archiv-Tabelle");
 }
 
 // Create a consistent snapshot of a database into the backups dir using VACUUM INTO,

@@ -32,7 +32,7 @@ async fn resolve_department(pool: &SqlitePool, department: Option<String>) -> Op
 }
 
 pub async fn get_notes(State(state): State<AppState>) -> impl IntoResponse {
-    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule, pinned FROM notes WHERE deleted_at IS NULL ORDER BY sort_order ASC, id ASC")
+    match sqlx::query_as::<_, Note>("SELECT id, title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule, pinned FROM notes WHERE deleted_at IS NULL AND status != 'archived' ORDER BY sort_order ASC, id ASC")
         .fetch_all(&state.pool)
         .await
     {
@@ -48,7 +48,7 @@ pub async fn search_notes(
     let q = params.q.unwrap_or_default().trim().to_lowercase();
     if q.is_empty() {
         match sqlx::query_as::<_, (i64, String)>(
-            "SELECT id, title FROM notes WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 8",
+            "SELECT id, title FROM notes WHERE deleted_at IS NULL AND status != 'archived' ORDER BY id DESC LIMIT 8",
         )
         .fetch_all(&state.pool)
         .await
@@ -65,7 +65,7 @@ pub async fn search_notes(
     }
     let pattern = format!("%{}%", q);
     match sqlx::query_as::<_, (i64, String)>(
-        "SELECT id, title FROM notes WHERE LOWER(title) LIKE ? AND deleted_at IS NULL ORDER BY sort_order ASC LIMIT 8",
+        "SELECT id, title FROM notes WHERE LOWER(title) LIKE ? AND deleted_at IS NULL AND status != 'archived' ORDER BY sort_order ASC LIMIT 8",
     )
     .bind(pattern)
     .fetch_all(&state.pool)
@@ -340,5 +340,53 @@ pub async fn duplicate_note(
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+pub async fn archive_note(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let note = match sqlx::query_as::<_, Note>("SELECT * FROM notes WHERE id = ? AND deleted_at IS NULL")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+    {
+        Ok(Some(n)) => n,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+
+    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let res = sqlx::query(
+        r#"
+        INSERT INTO notes (title, content, status, priority, date, due_date, department, departments, appointments, sort_order, completed_at, repeat_rule, pinned)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind(&note.title)
+    .bind(&note.content)
+    .bind(&note.status)
+    .bind(&note.priority)
+    .bind(&note.date)
+    .bind(&note.due_date)
+    .bind(&note.department)
+    .bind(&note.departments)
+    .bind(&note.appointments)
+    .bind(note.sort_order)
+    .bind(&now)
+    .bind(&note.repeat_rule)
+    .bind(note.pinned)
+    .execute(&state.archive_pool)
+    .await;
+
+    if res.is_ok() {
+        let _ = sqlx::query("DELETE FROM notes WHERE id = ?")
+            .bind(id)
+            .execute(&state.pool)
+            .await;
+        StatusCode::OK.into_response()
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
     }
 }

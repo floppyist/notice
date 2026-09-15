@@ -53,13 +53,18 @@ async fn main() {
     let ddb = db::connect(&cfg.database.contacts).await;
     db::setup_contacts(&ddb).await;
 
-    // Snapshot both databases on every startup (rolling window per config)
+    let adb = db::connect(&cfg.database.archive).await;
+    db::setup_archive(&adb).await;
+
+    // Snapshot databases on every startup (rolling window per config)
     db::backup_db(&pool, &cfg.database.backup_dir, "notice", cfg.database.backup_keep).await;
     db::backup_db(&ddb, &cfg.database.backup_dir, "contacts", cfg.database.backup_keep).await;
+    db::backup_db(&adb, &cfg.database.backup_dir, "archive", cfg.database.backup_keep).await;
 
     let state = AppState {
         pool,
         db: ddb,
+        archive_pool: adb,
         config: Arc::new(Mutex::new(cfg.clone())),
         created_fresh,
     };
