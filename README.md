@@ -1,11 +1,18 @@
 <p align="center">
-  <b><span style="color:#34d399">■</span> NOTICE_V1.5</b> — <i>Pro Kanban Notes</i>
+  <b><span style="color:#34d399">■</span> NOTICE_V1.7</b> — <i>Pro Kanban Notes</i>
 </p>
 
 <p align="center">
   A compact, single-file Kanban notes board as a web app:<br/>
   an <b>Axum REST API (Rust)</b> serves an embedded <b>Vue 3 / Tailwind</b> UI and stores everything in a SQLite database. Backend, frontend HTML and JavaScript all live in a single file (<code>src/main.rs</code>).
 </p>
+
+---
+
+> [!CAUTION]
+> **Work in Progress (WIP)**
+>
+> This project is currently in a very early development stage. Features might change drastically, break unexpectedly, or remain incomplete. Use with caution!
 
 ---
 
