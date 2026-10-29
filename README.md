@@ -20,6 +20,14 @@
 
 ---
 
+## `// DESIGN`
+
+Web, terminal UI and Android app share one design (see [`DESIGN.md`](DESIGN.md)): a single dark
+Gruvbox-on-teal palette with one red accent, sharp corners everywhere, JetBrainsMono, the active
+item as an accent block and the selected row as a `▌` bar.
+
+---
+
 ## `// VIEWS` — Dashboard, Board, Calendar, Wiki, Nodes, Data
 
 Views are switched from the header bar (`DASHBOARD` / `BOARD` / `CALENDAR` / `WIKI` /
@@ -72,24 +80,16 @@ the **trash** for soft-deleted notes and contacts (restore / empty).
 **Detail modal** (double-click a card) – title, status, priority, due date, recurrence,
 departments, appointments and content/checklist editing with an edit/preview toggle.
 
-![Overdue reminder](screenshots/reminders.png)
-
 **Overdue reminder** – a floating panel that lists past appointments and overdue due
 dates; entries can be completed or opened directly.
-
-![Autocomplete for notes](screenshots/autocomplete-note.png)
-
-![Autocomplete for contacts](screenshots/autocomplete-contact.png)
-
-![Autocomplete for wiki pages](screenshots/autocomplete-wiki.png)
 
 **Link autocomplete** – typing `[[`, `{{` or `<<` in any editor opens a keyboard-driven
 suggestion list (`↑` `↓` `Enter` `Esc`) for notes, contacts and wiki pages respectively.
 
 ![Settings](screenshots/settings.png)
 
-**Settings** – auto-archive of completed notes, trash auto-purge, network access toggle,
-language and theme.
+**Settings** – auto-archive of completed notes, trash auto-purge, network access toggle
+and language.
 
 ---
 
@@ -421,12 +421,13 @@ trash_purge_day = 30
 ## `// PROJECT STRUCTURE`
 
 - `src/` – modular Rust backend: `main.rs`, `config.rs`, `db.rs`, `models.rs`,
-  `recurrence.rs`, `i18n.rs`, `frontend.rs`, and `api/*` (notes, wiki, departments,
+  `recurrence.rs`, `i18n.rs`, `frontend.rs`, `tui/*` (terminal UI), and `api/*` (notes, wiki, departments,
   contacts, trash, archive, imports, config).
 - `frontend/` – the frontend (Vue 3 + Tailwind + marked, all vendored): `index.html`
   (template with runtime placeholders), `app.js`, `vendor/`, and `i18n/*.json`
   (de / en / es / fr).
-- `android/` – a native Android wrapper (WebView host for the Rust server) that builds an APK.
+- `android/` – the native Android app (Kotlin + Compose) that hosts the Rust server and builds an APK.
+- `DESIGN.md` – shared design tokens and rules for web, TUI and Android.
 - `notice.db` / `contacts.db` / `archive.db` – SQLite databases, created at runtime (gitignored).
 - `backups/` – startup snapshots of the databases (rolling window, gitignored).
 - `config.toml` – configuration (language, theme, auto-archive, trash purge, server; gitignored).
@@ -435,13 +436,27 @@ trash_purge_day = 30
 
 ---
 
+## `// TERMINAL UI`
+
+`cargo run -- --tui` starts a vim-style terminal interface on the same databases (dashboard, kanban,
+notes, wiki, data, calendar, archive, trash). Press `?` for the key list. Colours follow the shared
+palette (truecolor, 256-colour fallback, 16 ANSI colours on `TERM=linux`).
+
+---
+
 ## `// ANDROID APP (APK)`
 
-`android/` contains a slim native wrapper of the web app: an Android activity with a
-fullscreen WebView starts the cross-compiled Rust server (packaged as `libnotice.so`,
-which is actually an executable ELF binary) via `ProcessBuilder` and then loads
-`http://127.0.0.1:<free port>/`. Data (`config.toml`, `notice.db`, `contacts.db`,
-`archive.db`, `backups/`) lives in the app-private directory (`filesDir`) and survives updates.
+`android/` is a **native** Jetpack Compose app (Kotlin, no Material – sharp corners, own components).
+It starts the cross-compiled Rust server (packaged as `libnotice.so`, which is actually an executable
+ELF binary) on a free loopback port and talks to the REST API natively: today, board (long-press for the
+action sheet), calendar, wiki (with `[[links]]`), contacts, departments, archive, trash, settings and
+JSON export/import. UI strings are in `values/` (German) and `values-en/` (English). Data
+(`config.toml`, `notice.db`, `contacts.db`, `archive.db`, `backups/`) lives in the app-private directory
+(`filesDir`) and survives updates.
+
+![Action sheet](screenshots/mobile-actions.png)
+
+*(The screenshot shows the same action sheet in the mobile web UI.)*
 
 ```bash
 ./build-apk.sh

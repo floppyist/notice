@@ -1,9 +1,15 @@
 # Notice für Android
 
-`android/` enthält eine native Android-Verpackung (Gradle-Projekt) der Notice-Web-App.
-Eine Java-Activity mit Vollbild-WebView startet den cross-kompilierten Rust-Server des
-Projekts (als `libnotice.so` verpackt, aber ein ausführbares ELF-Binary) über
-`ProcessBuilder` und lädt anschließend `http://127.0.0.1:<freier Port>/`.
+`android/` enthält die **native** Android-App (Gradle-Projekt, Kotlin + Jetpack Compose, ohne
+Material-Bibliothek – eigene eckige Komponenten im Stil von `../DESIGN.md`).
+`MainActivity` startet den cross-kompilierten Rust-Server (als `libnotice.so` verpackt, aber ein
+ausführbares ELF-Binary) über `ProcessBuilder` (`Server.kt`) und spricht danach nativ die REST-API
+auf `http://127.0.0.1:<freier Port>` an (`Api.kt`, `Store.kt`). Es gibt keine WebView mehr.
+
+Quellen unter `app/src/main/kotlin/de/flo/notice/`: `Theme.kt` (Tokens + Komponenten), `App.kt`
+(Navigation), `Dashboard.kt`, `Board.kt`, `CalendarScreen.kt`, `WikiScreens.kt`, `Editors.kt`,
+`MoreScreens.kt`. Texte: `res/values/strings.xml` (Deutsch) und `res/values-en/strings.xml`.
+Schrift: `res/font/jbm_*.ttf` (Subset, erzeugt wie `../support/make_font.sh`).
 
 Daten (`config.toml`, `notice.db`, `contacts.db`, `backups/`) liegen im app-eigenen
 Verzeichnis (`filesDir`) und bleiben bei Updates erhalten.
@@ -39,7 +45,7 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 - JDK 17–22 für Gradle (`JAVA_HOME`) – fehlt ein passendes JDK (z. B. nur Java 25),
   lädt `build-apk.sh` automatisch JDK 21 nach `~/.cache/notice-jdk/`
 - Rust mit Target `aarch64-linux-android` und `cargo-ndk`
-- Gradle wird automatisch über den Wrapper bezogen (Gradle 8.7, AGP 8.5.2)
+- Gradle wird automatisch über den Wrapper bezogen (Gradle 8.7, AGP 8.5.2, Kotlin 2.0.20, Compose BOM 2024.09)
 
 `libnotice.so` wird nicht in Git eingecheckt – es entsteht beim Build.
 
@@ -47,5 +53,4 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 
 - Server-Log: `filesDir/notice.log` (auf dem Gerät:
   `adb shell run-as de.flo.notice cat files/notice.log`)
-- WebView-Debug (Chrome DevTools, `chrome://inspect`):
-  `adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`
+- UI-Logs: `adb logcat -s Notice AndroidRuntime`

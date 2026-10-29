@@ -84,8 +84,11 @@
                 const modalAptHasEnd = ref(false)
 
                 // Views / navigation
-                const activeView = ref((localStorage.getItem('notice-view') === 'addressbook' ? 'data' : localStorage.getItem('notice-view')) || 'dashboard')
+                const VIEWS = ['dashboard', 'board', 'calendar', 'wiki', 'graph', 'data']
+                const hashView = (location.hash || '').slice(1)
+                const activeView = ref(VIEWS.includes(hashView) ? hashView : (localStorage.getItem('notice-view') === 'addressbook' ? 'data' : localStorage.getItem('notice-view')) || 'dashboard')
                 watch(activeView, (v) => localStorage.setItem('notice-view', v))
+                if (activeView.value === 'wiki') setTimeout(() => fetchWikiPages(), 0)
                 const calViewMode = ref('month')
                 const calCursor = ref(new Date())
                 const calSelectedDay = ref(null)
@@ -362,10 +365,14 @@
                     wheelTimer = setTimeout(() => {
                         wheelLongPress = true
                         const rect = el.getBoundingClientRect()
-                        wheelCenter.value = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+                        const margin = 138
+                        const cx = Math.min(Math.max(rect.left + rect.width / 2, margin), window.innerWidth - margin)
+                        const cy = Math.min(Math.max(rect.top + rect.height / 2, margin), window.innerHeight - margin)
+                        if (navigator.vibrate) navigator.vibrate(12)
+                        wheelCenter.value = { x: cx, y: cy }
                         wheelNoteData.value = note
                         wheelMenuOpen.value = true
-                    }, 500)
+                    }, 450)
                 }
                 const wheelCancel = () => {
                     if (wheelTimer) clearTimeout(wheelTimer)
@@ -487,9 +494,10 @@
                     const total = 5
                     const angle = (index * (360 / total)) - 90
                     const rad = (angle * Math.PI) / 180
-                    const x = Math.round(Math.cos(rad) * 78)
-                    const y = Math.round(Math.sin(rad) * 78)
-                    return { transform: `translate(${x}px, ${y}px)`, left: '50%', top: '50%' }
+                    const radius = 92
+                    const x = Math.round(Math.cos(rad) * radius)
+                    const y = Math.round(Math.sin(rad) * radius)
+                    return { left: `calc(50% + ${x}px)`, top: `calc(50% + ${y}px)` }
                 }
 
                 const notes = ref([])
@@ -695,7 +703,7 @@
                 }
 
                 const wikiPreviewHtml = computed(() => {
-                    if (!wikiForm.value.content) return '<p class="text-zinc-600 dark:text-zinc-500">' + t('wiki.no_content') + '</p>'
+                    if (!wikiForm.value.content) return '<p class="text-zinc-500">' + t('wiki.no_content') + '</p>'
                     return renderMarkdown(wikiForm.value.content, [])
                 })
 
@@ -837,11 +845,11 @@
                     return columns.map(col => {
                         const count = notes.value.filter(n => n.status === col.id).length
                         const color = {
-                            backlog: 'bg-zinc-400 dark:bg-zinc-500',
-                            in_progress: 'bg-blue-500',
+                            backlog: 'bg-blue-500',
+                            in_progress: 'bg-cyan-500',
                             review: 'bg-amber-500',
-                            done: 'bg-emerald-500',
-                            archived: 'bg-zinc-300 dark:bg-zinc-700'
+                            done: 'bg-green-500',
+                            archived: 'bg-zinc-700'
                         }[col.id]
                         return { id: col.id, title: statusTitle(col.id), count, pct: Math.round((count / total) * 100), color }
                     })
@@ -853,7 +861,7 @@
                     return [
                         { label: 'high', count: active.filter(n => n.priority === 'high').length, color: 'bg-red-500' },
                         { label: 'medium', count: active.filter(n => n.priority === 'medium').length, color: 'bg-amber-500' },
-                        { label: 'low', count: active.filter(n => n.priority === 'low').length, color: 'bg-zinc-400 dark:bg-zinc-500' }
+                        { label: 'low', count: active.filter(n => n.priority === 'low').length, color: 'bg-zinc-500' }
                     ].map(r => ({ ...r, pct: Math.round((r.count / total) * 100) }))
                 })
 
@@ -2497,7 +2505,7 @@ const isAppointmentOverdue = (apt) => {
                 }
 
                 const renderMarkdown = (content, checklist) => {
-                    if (!content) return '<p class="text-zinc-600 dark:text-zinc-500">' + t('wiki.no_content') + '</p>'
+                    if (!content) return '<p class="text-zinc-500">' + t('wiki.no_content') + '</p>'
                     let html = marked.parse(centerBlocks(content))
                     html = processAddressLinks(processNoteLinks(processWikiLinks(html)))
                     let idx = 0
@@ -2510,7 +2518,7 @@ const isAppointmentOverdue = (apt) => {
                 }
 
                 const renderedMarkdown = computed(() => {
-                    if (!activeNote.value) return '<p class="text-zinc-600 dark:text-zinc-500">' + t('wiki.no_content') + '</p>'
+                    if (!activeNote.value) return '<p class="text-zinc-500">' + t('wiki.no_content') + '</p>'
                     return renderMarkdown(activeNote.value.content, activeChecklist.value)
                 })
 
@@ -2641,10 +2649,10 @@ const isAppointmentOverdue = (apt) => {
                                 content: serializedContent,
                                 status: activeNote.value.status,
                                 priority: activeNote.value.priority,
-                                due_date: activeNote.value.due_date || null,
+                                due_date: activeNote.value.due_date || '',
                                 departments: JSON.stringify(activeNoteDepartments.value),
                                 appointments: JSON.stringify(activeNoteAppointments.value),
-                                repeat_rule: activeNote.value.repeat_rule || null
+                                repeat_rule: activeNote.value.repeat_rule || ''
                             })
                         })
                         if (res.ok) {
@@ -2966,7 +2974,7 @@ const isAppointmentOverdue = (apt) => {
                     const d = new Date(date)
                     const todayStr = dateStr(new Date())
                     const overdueStr = { cls: 'bg-red-500 rounded-full' }
-                    const aptStr = { cls: 'bg-emerald-500 rounded-full' }
+                    const aptStr = { cls: 'bg-cyan-500' }
                     const dueStr = { cls: 'bg-blue-500 rounded-full' }
                     const dots = events.map(ev => {
                         if (ev.cls === 'cal-event-overdue') return overdueStr
@@ -2981,9 +2989,9 @@ const isAppointmentOverdue = (apt) => {
                             else if (ev.cls === 'cal-event-apt') prio = Math.max(prio, 2)
                             else prio = Math.max(prio, 1)
                         }
-                        frameCls = prio === 3 ? 'ring-1 ring-red-400 dark:ring-red-500' :
-                            prio === 2 ? 'ring-1 ring-emerald-400 dark:ring-emerald-500' :
-                            'ring-1 ring-blue-400 dark:ring-blue-500'
+                        frameCls = prio === 3 ? 'ring-1 ring-red-500' :
+                            prio === 2 ? 'ring-1 ring-emerald-500' :
+                            'ring-1 ring-blue-500'
                     }
                     return {
                         date: d,
@@ -3293,12 +3301,12 @@ const isAppointmentOverdue = (apt) => {
 
                 // --- Graph view (Nodemap) ---
                 const graphTypes = [
-                    { id: 'note', label: 'graph.type_note', color: '#3b82f6' },
-                    { id: 'contact', label: 'graph.type_contact', color: '#10b981' },
-                    { id: 'wiki', label: 'graph.type_wiki', color: '#8b5cf6' },
-                    { id: 'dept', label: 'graph.type_dept', color: '#f59e0b' }
+                    { id: 'note', label: 'graph.type_note', color: '#83a598' },
+                    { id: 'contact', label: 'graph.type_contact', color: '#8ec07c' },
+                    { id: 'wiki', label: 'graph.type_wiki', color: '#d3869b' },
+                    { id: 'dept', label: 'graph.type_dept', color: '#fabd2f' }
                 ]
-                const graphTypeColor = (type) => (graphTypes.find(t => t.id === type) || { color: '#71717a' }).color
+                const graphTypeColor = (type) => (graphTypes.find(t => t.id === type) || { color: '#7c6f64' }).color
                 const graphTypeLabel = (type) => {
                     const g = graphTypes.find(t => t.id === type)
                     return g ? t(g.label) : type
@@ -3505,7 +3513,7 @@ const isAppointmentOverdue = (apt) => {
                     graphLinkData.value.forEach(l => {
                         if (!vis[l.a.type] || !vis[l.b.type]) return
                         const hl = highlightIds.has(l.a.id) || highlightIds.has(l.b.id)
-                        ctx.strokeStyle = hl ? graphTypeColor(l.a.type) : 'rgba(120,120,130,0.35)'
+                        ctx.strokeStyle = hl ? graphTypeColor(l.a.type) : 'rgba(124,111,100,0.45)'
                         ctx.globalAlpha = hl ? 0.9 : 0.6
                         ctx.lineWidth = (hl ? 2 : 1) / graphCam.zoom
                         ctx.beginPath()
@@ -3526,10 +3534,10 @@ const isAppointmentOverdue = (apt) => {
                         ctx.fill()
                         ctx.globalAlpha = 1
                         ctx.lineWidth = (hl ? 2.5 : 1) / graphCam.zoom
-                        ctx.strokeStyle = hl ? '#fafafa' : 'rgba(0,0,0,0.35)'
+                        ctx.strokeStyle = hl ? '#ebdbb2' : 'rgba(25,28,28,0.6)'
                         ctx.stroke()
                         ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace'
-                        ctx.fillStyle = hl ? col : 'rgba(140,140,150,0.9)'
+                        ctx.fillStyle = hl ? col : 'rgba(168,153,132,0.9)'
                         ctx.fillText(n.label.length > 26 ? n.label.slice(0, 25) + '…' : n.label, n.x + r + 5, n.y + 3)
                     })
                     ctx.restore()
@@ -3873,6 +3881,7 @@ const isAppointmentOverdue = (apt) => {
                     gridColsStyle,
                     mobileBoardColumn,
                     wheelMenuOpen,
+                    wheelNoteData,
                     wheelCenter,
                     wheelStart,
                     wheelCancel,

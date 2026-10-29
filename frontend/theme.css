@@ -1,0 +1,96 @@
+/* NOTICE · Design-System (dotfiles-Stil, siehe DESIGN.md)
+ * Tokens: bg surface overlay fg subtle muted · Akzent rot · alles eckig · JetBrainsMono Nerd Font */
+@font-face { font-family: 'JBM'; font-weight: 400; src: url('/fonts/jbm-Regular.woff2') format('woff2'); font-display: swap; }
+@font-face { font-family: 'JBM'; font-weight: 700; src: url('/fonts/jbm-Bold.woff2') format('woff2'); font-display: swap; }
+
+:root {
+    --bg: #191c1c;
+    --surface: #252a2a;
+    --overlay: #313838;
+    --fg: #ebdbb2;
+    --subtle: #a89984;
+    --muted: #7c6f64;
+    --accent: #cc241d;
+    --accent-text: #fb4934;
+    --on-accent: #191c1c;
+    --red: #fb4934; --green: #b8bb26; --yellow: #fabd2f; --blue: #83a598;
+    --purple: #d3869b; --aqua: #8ec07c; --orange: #fe8019;
+
+    /* Kompatibilität zu bestehenden Regeln */
+    --bg-page: var(--bg);
+    --bg-panel: var(--surface);
+    --bg-card: var(--bg);
+    --border: var(--overlay);
+    --border-hover: var(--muted);
+    --text: var(--fg);
+    --text-muted: var(--subtle);
+    --text-faint: var(--muted);
+    --code-bg: var(--surface);
+    --green-bright: var(--green);
+    --green-hover: var(--green);
+    --blue-bright: var(--blue);
+    --red-bright: var(--red);
+    --violet-bright: var(--purple);
+    --apt-bg: var(--surface);
+}
+
+html, body {
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: 'JBM', 'JetBrainsMono Nerd Font', ui-monospace, monospace;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+}
+* { border-radius: 0 !important; scrollbar-width: thin; scrollbar-color: var(--overlay) transparent; }
+::selection { background: var(--accent); color: var(--on-accent); }
+:focus-visible { outline: 1px solid var(--accent-text); outline-offset: -1px; }
+input, textarea, select { background-color: var(--bg); color: var(--fg); font-family: inherit; }
+input::placeholder, textarea::placeholder { color: var(--muted); }
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent) !important; }
+select { appearance: none; -webkit-appearance: none; }
+
+/* Auswahlbalken: ▌ in Akzent auf Surface */
+.sel-bar { box-shadow: inset 3px 0 0 var(--accent); background: var(--surface); }
+
+/* Markdown / Links */
+.note-link { color: var(--aqua); }
+.note-link:hover { color: var(--aqua); background: rgba(142, 192, 124, 0.12); }
+.address-link { color: var(--purple); }
+.address-link:hover { background: rgba(211, 134, 155, 0.12); }
+.autocomplete-item.active { background: var(--surface); box-shadow: inset 3px 0 0 var(--accent); }
+.markdown-body code { background: var(--surface); color: var(--fg); }
+.markdown-body th { background: var(--surface); }
+
+/* Abteilungs-Tags */
+.dept-tag { background: transparent; border: 1px solid var(--overlay); color: var(--aqua); font-family: inherit; }
+.dept-tag-remove:hover { color: var(--red); }
+
+/* Kalender */
+.cal-day:hover { background: var(--surface); }
+.cal-day-num.today { color: var(--accent-text); }
+.cal-week-header.today { color: var(--accent-text); }
+.cal-event-due, .cal-timeline-block.cal-event-due { background: rgba(131, 165, 152, 0.14); border-left-color: var(--blue); color: var(--blue); }
+.cal-event-apt, .cal-timeline-block.cal-event-apt { background: rgba(142, 192, 124, 0.14); border-left-color: var(--aqua); color: var(--aqua); }
+.cal-event-overdue, .cal-timeline-block.cal-event-overdue { background: rgba(251, 73, 52, 0.14); border-left-color: var(--red); color: var(--red); }
+.cal-dot { border-radius: 0 !important; }
+
+.kbd { background: var(--surface); color: var(--fg); border: 1px solid var(--overlay); border-bottom-width: 1px; padding: 0 5px; font-size: 10px; }
+
+/* Aktionsliste (ersetzt das runde Wheel-Menü) */
+.sheet-overlay { position: fixed; inset: 0; z-index: 70; background: rgba(25, 28, 28, 0.72); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { width: 100%; max-width: 480px; background: var(--bg); border: 1px solid var(--overlay); border-bottom: 0; padding-bottom: env(safe-area-inset-bottom); animation: sheet-in 140ms ease-out; }
+.sheet-title { padding: 10px 14px; background: var(--surface); color: var(--subtle); font-size: 11px; border-bottom: 1px solid var(--overlay); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px; text-align: left; font-size: 13px; color: var(--fg); border-bottom: 1px solid var(--overlay); background: transparent; }
+.sheet-item:active, .sheet-item.current { background: var(--surface); box-shadow: inset 3px 0 0 var(--accent); }
+.sheet-item .dot { width: 8px; height: 8px; display: inline-block; }
+@keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Standard-Rahmenfarbe (Tailwind-Preflight setzt sonst Hellgrau) */
+html *, html ::before, html ::after { border-color: var(--overlay); }
+button { white-space: nowrap; }
+.cal-day-num.today { display: inline-block; background: var(--accent); color: var(--on-accent); padding: 0 4px; }
+.cal-week-header.today { background: var(--accent); color: var(--on-accent); }
+:root { color-scheme: dark; }

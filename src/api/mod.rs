@@ -13,6 +13,7 @@ pub mod wiki;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(crate::frontend::index_handler))
+        .route("/fonts/:name", get(crate::frontend::font_handler))
         .route("/api/notes", get(notes::get_notes).post(notes::create_note))
         .route("/api/notes/search", get(notes::search_notes))
         .route(

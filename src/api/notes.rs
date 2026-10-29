@@ -167,7 +167,12 @@ pub async fn update_note(
     let content = payload.content.unwrap_or(existing.content);
     let status = payload.status.unwrap_or(existing.status);
     let priority = payload.priority.unwrap_or(existing.priority);
-    let due_date = payload.due_date.or(existing.due_date);
+    // Leerer String entfernt den Wert, fehlendes Feld lässt ihn unverändert
+    let due_date = match payload.due_date {
+        Some(s) if s.trim().is_empty() => None,
+        Some(s) => Some(s),
+        None => existing.due_date,
+    };
     let department = match payload.department {
         Some(s) => resolve_department(&state.pool, Some(s)).await,
         None => existing.department,
@@ -175,14 +180,11 @@ pub async fn update_note(
     let departments = payload.departments.or(existing.departments);
     let appointments = payload.appointments.or(existing.appointments);
     let sort_order = payload.sort_order.unwrap_or(existing.sort_order);
-    let repeat_rule = payload
-        .repeat_rule
-        .map(|s| {
-            let t = s.trim().to_string();
-            if t.is_empty() { None } else { Some(t) }
-        })
-        .flatten()
-        .or(existing.repeat_rule);
+    let repeat_rule = match payload.repeat_rule {
+        Some(s) if s.trim().is_empty() || s.trim() == "none" => None,
+        Some(s) => Some(s.trim().to_string()),
+        None => existing.repeat_rule,
+    };
     let pinned = match payload.pinned {
         Some(Some(v)) => if v { 1 } else { 0 },
         _ => existing.pinned,
