@@ -198,6 +198,9 @@ fun SettingsScreen(store: Store, nav: Nav, activity: MainActivity) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val app = store.config.optJSONObject("app") ?: JSONObject()
+    var lead by remember { mutableStateOf(Reminders.leadMinutes(ctx)) }
+    var remoteUrl by remember { mutableStateOf(Remote.url(ctx)) }
+    var remoteToken by remember { mutableStateOf(Remote.token(ctx)) }
     var archDay by remember { mutableStateOf(app.optInt("auto_archive_day", 1).toString()) }
     var purgeDay by remember { mutableStateOf(app.optInt("trash_purge_day", 30).toString()) }
 
@@ -227,6 +230,18 @@ fun SettingsScreen(store: Store, nav: Nav, activity: MainActivity) {
     Column(Modifier.fillMaxSize()) {
         TopBar(stringResource(R.string.settings), back = { nav.pop() })
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SectionTitle(stringResource(R.string.reminders))
+            Tx(stringResource(R.string.reminder_lead), color = C.muted, size = 11)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Reminders.LEAD_OPTIONS.forEach { m ->
+                    Chip(if (m == 0) stringResource(R.string.reminder_at_start) else "$m min", lead == m, {
+                        lead = m
+                        Reminders.setLeadMinutes(ctx, m)
+                        Reminders.sync(ctx, store.notes)
+                    })
+                }
+            }
+
             SectionTitle(stringResource(R.string.auto_archive))
             Toggle(stringResource(R.string.auto_archive_desc), app.optBoolean("auto_archive_enabled")) { patch("auto_archive_enabled", it) }
             Field(archDay, { archDay = it; it.toIntOrNull()?.takeIf { d -> d in 1..31 }?.let { d -> patch("auto_archive_day", d) } }, stringResource(R.string.day_of_month), keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
@@ -234,6 +249,16 @@ fun SettingsScreen(store: Store, nav: Nav, activity: MainActivity) {
             SectionTitle(stringResource(R.string.trash))
             Toggle(stringResource(R.string.trash_purge_desc), app.optBoolean("trash_purge_enabled")) { patch("trash_purge_enabled", it) }
             Field(purgeDay, { purgeDay = it; it.toIntOrNull()?.takeIf { d -> d in 1..365 }?.let { d -> patch("trash_purge_day", d) } }, stringResource(R.string.days), keyboard = KeyboardOptions(keyboardType = KeyboardType.Number))
+
+            SectionTitle(stringResource(R.string.sync))
+            Tx(stringResource(R.string.sync_hint), color = C.muted, size = 11)
+            Field(remoteUrl, { remoteUrl = it }, stringResource(R.string.sync_url), placeholder = "https://notice.example.com", keyboard = KeyboardOptions(keyboardType = KeyboardType.Uri))
+            Field(remoteToken, { remoteToken = it }, stringResource(R.string.sync_token), keyboard = KeyboardOptions(keyboardType = KeyboardType.Password), password = true)
+            Btn(stringResource(R.string.sync_connect), {
+                if (!Remote.valid(remoteUrl)) store.message = ctx.getString(R.string.sync_https)
+                else { Remote.set(ctx, remoteUrl, remoteToken); activity.retry() }
+            }, Modifier.fillMaxWidth(), primary = true)
+            if (Remote.enabled(ctx)) Btn(stringResource(R.string.use_local), { Remote.set(ctx, "", ""); activity.retry() }, Modifier.fillMaxWidth())
 
             SectionTitle(stringResource(R.string.data))
             Btn(stringResource(R.string.export_json), { export.launch("notice-export.json") }, Modifier.fillMaxWidth())

@@ -4,6 +4,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
+use crate::tui::links::LinkKind;
 use crate::tui::theme as th;
 use serde_json::{json, Value};
 
@@ -217,6 +218,18 @@ pub struct Editor {
     pub(crate) checklist: Vec<CheckEdit>,
     pub(crate) list_focus: ListFocus,
     pub(crate) list_idx: usize,
+    /// Mögliche Link-Ziele (vom App gesetzt) für die Autovervollständigung.
+    pub candidates: Vec<(LinkKind, String)>,
+    suggest: Option<Suggest>,
+    suppress: bool,
+}
+
+/// Aktive Link-Vorschläge: `start` = Zeichenindex des Öffners (`[[`, `<<`, `{{`).
+struct Suggest {
+    kind: LinkKind,
+    start: usize,
+    items: Vec<String>,
+    sel: usize,
 }
 
 impl Editor {
@@ -309,6 +322,9 @@ impl Editor {
             checklist,
             list_focus: ListFocus::None,
             list_idx: 0,
+            candidates: Vec::new(),
+            suggest: None,
+            suppress: false,
         }
     }
 
@@ -366,6 +382,9 @@ impl Editor {
             checklist: Vec::new(),
             list_focus: ListFocus::None,
             list_idx: 0,
+            candidates: Vec::new(),
+            suggest: None,
+            suppress: false,
         }
     }
 
@@ -404,6 +423,9 @@ impl Editor {
             checklist: Vec::new(),
             list_focus: ListFocus::None,
             list_idx: 0,
+            candidates: Vec::new(),
+            suggest: None,
+            suppress: false,
         }
     }
 
@@ -448,7 +470,127 @@ impl Editor {
         }
     }
 
+    /// Vorschläge für Links: `(Anzeigetexte, Auswahlindex, Zeile, Spalte)` – Position relativ zum Cursor.
+    pub fn suggestions(&self) -> Option<(Vec<String>, usize)> {
+        let sg = self.suggest.as_ref()?;
+        let (open, close) = Self::delims(sg.kind);
+        Some((sg.items.iter().map(|t| format!("{open}{t}{close}")).collect(), sg.sel))
+    }
+
+    fn delims(kind: LinkKind) -> (&'static str, &'static str) {
+        match kind {
+            LinkKind::Note => ("[[", "]]"),
+            LinkKind::Wiki => ("<<", ">>"),
+            LinkKind::Contact => ("{{", "}}"),
+        }
+    }
+
+    /// Prüft, ob der Cursor in einem offenen Link steht, und berechnet die Vorschlagsliste neu.
+    fn update_suggest(&mut self) {
+        self.suggest = None;
+        if self.suppress {
+            return;
+        }
+        let Some(field) = self.fields.get(self.focus) else { return };
+        if !field.multiline {
+            return;
+        }
+        let before = &field.chars[..field.cursor];
+        let line_start = before.iter().rposition(|c| *c == '\n').map_or(0, |p| p + 1);
+        let line = &before[line_start..];
+        // Spätester Öffner in dieser Zeile
+        let mut best: Option<(usize, LinkKind)> = None;
+        for i in 0..line.len().saturating_sub(1) {
+            let kind = match (line[i], line[i + 1]) {
+                ('[', '[') => LinkKind::Note,
+                ('<', '<') => LinkKind::Wiki,
+                ('{', '{') => LinkKind::Contact,
+                _ => continue,
+            };
+            best = Some((i, kind));
+        }
+        let Some((i, kind)) = best else { return };
+        let typed: String = line[i + 2..].iter().collect();
+        let (_, close) = Self::delims(kind);
+        // Bereits geschlossen oder Anzeigename-Teil (`|`) → keine Vorschläge
+        if typed.contains(close.chars().next().unwrap()) || typed.contains('|') {
+            return;
+        }
+        let needle = typed.to_lowercase();
+        let items: Vec<String> = self
+            .candidates
+            .iter()
+            .filter(|(k, name)| *k == kind && name.to_lowercase().contains(&needle) && !name.contains(['|', ']', '>', '}']))
+            .map(|(_, name)| name.clone())
+            .take(8)
+            .collect();
+        if items.is_empty() {
+            return;
+        }
+        let prev_sel = 0;
+        self.suggest = Some(Suggest { kind, start: line_start + i, items, sel: prev_sel });
+    }
+
+    fn accept_suggest(&mut self) {
+        let Some(sg) = self.suggest.take() else { return };
+        let Some(title) = sg.items.get(sg.sel).cloned() else { return };
+        let (_, close) = Self::delims(sg.kind);
+        if let Some(field) = self.fields.get_mut(self.focus) {
+            let tail: Vec<char> = field.chars[field.cursor..].to_vec();
+            field.chars.truncate(sg.start + 2);
+            field.chars.extend(title.chars());
+            field.chars.extend(close.chars());
+            field.cursor = field.chars.len();
+            // Schließer, der schon hinter dem Cursor stand, nicht doppeln
+            let skip = if tail.starts_with(&close.chars().collect::<Vec<_>>()) { close.chars().count() } else { 0 };
+            field.chars.extend(tail.into_iter().skip(skip));
+        }
+        self.suppress = true;
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> EditorAction {
+        let action = self.handle_key_inner(key);
+        self.update_suggest();
+        action
+    }
+
+    fn handle_key_inner(&mut self, key: KeyEvent) -> EditorAction {
+        // Link-Vorschläge haben Vorrang vor der normalen Bedienung
+        if let Some(sg) = self.suggest.as_mut() {
+            let plain = !key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Down => {
+                    sg.sel = (sg.sel + 1) % sg.items.len();
+                    return EditorAction::None;
+                }
+                KeyCode::Up => {
+                    sg.sel = (sg.sel + sg.items.len() - 1) % sg.items.len();
+                    return EditorAction::None;
+                }
+                KeyCode::Char('n') if !plain => {
+                    sg.sel = (sg.sel + 1) % sg.items.len();
+                    return EditorAction::None;
+                }
+                KeyCode::Char('p') if !plain => {
+                    sg.sel = (sg.sel + sg.items.len() - 1) % sg.items.len();
+                    return EditorAction::None;
+                }
+                KeyCode::Tab | KeyCode::Enter => {
+                    self.accept_suggest();
+                    return EditorAction::None;
+                }
+                KeyCode::Esc => {
+                    self.suggest = None;
+                    self.suppress = true;
+                    return EditorAction::None;
+                }
+                _ => {}
+            }
+        }
+        // Jede Texteingabe hebt die Unterdrückung (nach Esc/Übernahme) wieder auf
+        if matches!(key.code, KeyCode::Char(_) | KeyCode::Backspace) && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.suppress = false;
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('s') => return EditorAction::Save,
@@ -457,11 +599,18 @@ impl Editor {
             }
         }
 
+        // h/j/k/l navigieren nur auf Auswahlfeldern; in Textfeldern sind es normale Zeichen.
+        let on_choice = self.fields.get(self.focus).is_some_and(|f| f.choices.is_some());
+        let plain = !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT);
+        let vim = |c: char| on_choice && plain && key.code == KeyCode::Char(c);
+
         match key.code {
             KeyCode::Esc => return EditorAction::Cancel,
-            KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => self.next_focus(),
-            KeyCode::BackTab | KeyCode::Up | KeyCode::Char('k') => self.previous_focus(),
-            KeyCode::Char('h') | KeyCode::Left => {
+            KeyCode::Tab | KeyCode::Down => self.next_focus(),
+            KeyCode::BackTab | KeyCode::Up => self.previous_focus(),
+            _ if vim('j') => self.next_focus(),
+            _ if vim('k') => self.previous_focus(),
+            KeyCode::Left => {
                 if let Some(field) = self.fields.get_mut(self.focus) {
                     if field.choices.is_some() {
                         field.cycle(-1);
@@ -470,7 +619,25 @@ impl Editor {
                     }
                 }
             }
-            KeyCode::Char('l') | KeyCode::Right => {
+            KeyCode::Right => {
+                if let Some(field) = self.fields.get_mut(self.focus) {
+                    if field.choices.is_some() {
+                        field.cycle(1);
+                    } else {
+                        field.move_right();
+                    }
+                }
+            }
+            _ if vim('h') => {
+                if let Some(field) = self.fields.get_mut(self.focus) {
+                    if field.choices.is_some() {
+                        field.cycle(-1);
+                    } else {
+                        field.move_left();
+                    }
+                }
+            }
+            _ if vim('l') => {
                 if let Some(field) = self.fields.get_mut(self.focus) {
                     if field.choices.is_some() {
                         field.cycle(1);

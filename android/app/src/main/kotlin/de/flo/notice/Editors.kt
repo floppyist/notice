@@ -160,6 +160,11 @@ fun NoteEditor(store: Store, nav: Nav, note: Note?) {
 
                 Section(stringResource(R.string.content)) {
                     Field(text, { text = it }, singleLine = false, minLines = 6, placeholder = stringResource(R.string.content_ph))
+                    if (hasLinks(text)) {
+                        Box(Modifier.padding(top = 8.dp)) {
+                            Panel { Markdown(text) { kind, target -> openLink(store, nav, kind, target) } }
+                        }
+                    }
                 }
 
                 Section(stringResource(R.string.checklist)) {

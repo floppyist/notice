@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -16,9 +18,27 @@ android {
         versionName = "2.0.0"
     }
 
+    // Release-Signatur aus android/keystore.properties (gitignoriert):
+    //   storeFile=/pfad/notice-release.jks  storePassword=…  keyAlias=notice  keyPassword=…
+    val ksProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    signingConfigs {
+        if (ksProps.containsKey("storeFile")) {
+            create("release") {
+                storeFile = file(ksProps.getProperty("storeFile"))
+                storePassword = ksProps.getProperty("storePassword")
+                keyAlias = ksProps.getProperty("keyAlias")
+                keyPassword = ksProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 

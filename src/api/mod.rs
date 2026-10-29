@@ -54,5 +54,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/archive", get(archive::get_archived))
         .route("/api/archive/:id/restore", post(archive::restore_from_archive))
         .route("/api/archive/:id", delete(archive::force_delete_archived))
+        .route("/login", get(crate::auth::login_page).post(crate::auth::login_submit))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), crate::auth::require_token))
         .with_state(state)
 }

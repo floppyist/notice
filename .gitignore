@@ -5,3 +5,6 @@ AGENTS.md
 config.toml
 config.toml.tmp
 /backups
+
+android/keystore.properties
+*.jks

@@ -111,4 +111,17 @@
     <string name="wiki_ph">Markdown, link with [[Page name]] …</string>
     <string name="yes">Yes</string>
     <string name="title_required">The title must not be empty.</string>
+    <string name="reminders">Reminders</string>
+    <string name="reminder_lead">Lead time before timed appointments</string>
+    <string name="reminder_at_start">At start</string>
+    <string name="reminder_in">in %d min</string>
+    <string name="reminder_today">Today</string>
+    <string name="reminder_due">Due today</string>
+    <string name="sync">Sync</string>
+    <string name="sync_hint">Use a central Notice server: all devices share the same data. HTTPS only; create a token with “notice --gen-token”. Leave empty to work locally.</string>
+    <string name="sync_url">Server URL</string>
+    <string name="sync_token">Token</string>
+    <string name="sync_connect">Connect to server</string>
+    <string name="sync_https">The URL must start with https://</string>
+    <string name="use_local">Use local</string>
 </resources>

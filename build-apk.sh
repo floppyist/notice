@@ -8,9 +8,15 @@
 #                      gefunden wird (z. B. nur Java 25 installiert), lädt das
 #                      Skript automatisch JDK 21 nach ~/.cache/notice-jdk/.
 #
+# Aufruf:  ./build-apk.sh            -> Debug-APK
+#          ./build-apk.sh release    -> signiertes Release-APK (braucht android/keystore.properties)
+#
 # Ausgabe: android/app/build/outputs/apk/debug/app-debug.apk
+#          android/app/build/outputs/apk/release/app-release.apk
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+VARIANT="${1:-debug}"
+case "$VARIANT" in debug|release) ;; *) echo "Usage: $0 [debug|release]" >&2; exit 1 ;; esac
 cd "$ROOT"
 
 java_major() {
@@ -86,8 +92,24 @@ else
   GRADLE="gradle"
 fi
 
-echo "==> assembleDebug"
-"$GRADLE" --no-daemon assembleDebug
-
-echo ""
-echo "APK: $ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
+if [ "$VARIANT" = release ]; then
+  [ -f keystore.properties ] || { cat >&2 <<'EOF'
+android/keystore.properties fehlt. Keystore anlegen:
+  keytool -genkeypair -v -keystore ~/notice-release.jks -alias notice -keyalg RSA -keysize 4096 -validity 10000
+und android/keystore.properties schreiben:
+  storeFile=/home/<du>/notice-release.jks
+  storePassword=...
+  keyAlias=notice
+  keyPassword=...
+EOF
+    exit 1; }
+  echo "==> assembleRelease"
+  "$GRADLE" --no-daemon assembleRelease
+  echo ""
+  echo "APK: $ROOT/android/app/build/outputs/apk/release/app-release.apk"
+else
+  echo "==> assembleDebug"
+  "$GRADLE" --no-daemon assembleDebug
+  echo ""
+  echo "APK: $ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
+fi

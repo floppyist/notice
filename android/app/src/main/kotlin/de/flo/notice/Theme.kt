@@ -227,6 +227,7 @@ fun Field(
     minLines: Int = 1,
     placeholder: String = "",
     keyboard: KeyboardOptions = KeyboardOptions.Default,
+    password: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
     Column(modifier) {
@@ -246,6 +247,7 @@ fun Field(
                 singleLine = singleLine,
                 minLines = minLines,
                 keyboardOptions = keyboard,
+                visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                 textStyle = TextStyle(color = C.fg, fontSize = 13.sp, fontFamily = Mono, lineHeight = 19.sp),
                 cursorBrush = SolidColor(C.accentText),
                 modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },

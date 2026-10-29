@@ -68,10 +68,7 @@ fun WikiView(store: Store, nav: Nav, id: Long) {
                 BarAction(stringResource(R.string.edit)) { nav.push(Page.WikiEdit(page)) }
             })
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp)) {
-                Markdown(page.content) { target ->
-                    val hit = store.wiki.firstOrNull { it.title.equals(target, true) }
-                    if (hit != null) nav.push(Page.WikiView(hit.id)) else store.message = target
-                }
+                Markdown(page.content) { kind, target -> openLink(store, nav, kind, target) }
                 Box(Modifier.padding(top = 24.dp)) { Btn(stringResource(R.string.delete), { confirm = true }, Modifier.fillMaxWidth(), color = C.red) }
             }
         }
@@ -80,9 +77,23 @@ fun WikiView(store: Store, nav: Nav, id: Long) {
     }
 }
 
-/** Minimales Markdown: Überschriften, Listen, Zitate, **fett**, `code`, [[Wiki-Links]]. */
+/** Link-Arten: `[[Notiz]]` = note, `<<Wiki>>` = wiki, `{{Kontakt}}` = contact (jeweils mit optionalem `|Anzeige`). */
+fun openLink(store: Store, nav: Nav, kind: String, target: String) {
+    when (kind) {
+        "note" -> store.notes.firstOrNull { it.title.equals(target, true) }?.let { nav.push(Page.NoteEdit(it)) }
+        "wiki" -> store.wiki.firstOrNull { it.title.equals(target, true) }?.let { nav.push(Page.WikiView(it.id)) }
+        "contact" -> store.contacts.firstOrNull { it.name.equals(target, true) }?.let { nav.push(Page.ContactEdit(it)) }
+        else -> null
+    } ?: run { store.message = "Nicht gefunden: $target" }
+}
+
+fun hasLinks(src: String): Boolean = runCatching { LINK_RE.containsMatchIn(src) }.getOrDefault(false)
+
+private val LINK_RE by lazy { Regex("\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]|\\{\\{([^\\}|]+)(?:\\|([^\\}]+))?\\}\\}|<<([^>|]+)(?:\\|([^>]+))?>>") }
+
+/** Minimales Markdown: Überschriften, Listen, Zitate, **fett**, `code`, [[Notiz]], <<Wiki>>, {{Kontakt}}. */
 @Composable
-fun Markdown(src: String, onLink: (String) -> Unit) {
+fun Markdown(src: String, onLink: (String, String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         src.split("\n").forEach { raw ->
             val line = raw.trimEnd()
@@ -111,28 +122,36 @@ fun Markdown(src: String, onLink: (String) -> Unit) {
 }
 
 @Composable
-private fun Inline(line: String, color: androidx.compose.ui.graphics.Color, onLink: (String) -> Unit) {
+private fun Inline(line: String, color: androidx.compose.ui.graphics.Color, onLink: (String, String) -> Unit) {
     val text = buildInline(line)
     ClickableText(
         text = text,
         style = TextStyle(color = color, fontSize = 13.sp, fontFamily = Mono, lineHeight = 20.sp),
-        onClick = { off -> text.getStringAnnotations("wiki", off, off).firstOrNull()?.let { onLink(it.item) } },
+        onClick = { off ->
+            for (kind in listOf("note", "wiki", "contact")) {
+                text.getStringAnnotations(kind, off, off).firstOrNull()?.let { onLink(kind, it.item); return@ClickableText }
+            }
+        },
     )
 }
 
 private fun buildInline(line: String): AnnotatedString = buildAnnotatedString {
-    val re = Regex("\\[\\[([^\\]]+)]]|\\*\\*([^*]+)\\*\\*|`([^`]+)`")
+    val re = Regex(LINK_RE.pattern + "|\\*\\*([^*]+)\\*\\*|`([^`]+)`")
     var last = 0
+    fun link(kind: String, color: androidx.compose.ui.graphics.Color, target: String, display: String) {
+        pushStringAnnotation(kind, target)
+        withStyle(SpanStyle(color = color, textDecoration = TextDecoration.Underline)) { append(display.ifEmpty { target }) }
+        pop()
+    }
     for (m in re.findAll(line)) {
         append(line.substring(last, m.range.first))
+        val g = m.groupValues
         when {
-            m.groups[1] != null -> {
-                pushStringAnnotation("wiki", m.groupValues[1])
-                withStyle(SpanStyle(color = C.purple, textDecoration = TextDecoration.Underline)) { append(m.groupValues[1]) }
-                pop()
-            }
-            m.groups[2] != null -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(m.groupValues[2]) }
-            else -> withStyle(SpanStyle(background = C.surface, color = C.aqua)) { append(" ${m.groupValues[3]} ") }
+            m.groups[1] != null -> link("note", C.purple, g[1], g[2])
+            m.groups[3] != null -> link("contact", C.aqua, g[3], g[4])
+            m.groups[5] != null -> link("wiki", C.blue, g[5], g[6])
+            m.groups[7] != null -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(g[7]) }
+            else -> withStyle(SpanStyle(background = C.surface, color = C.aqua)) { append(" ${g[8]} ") }
         }
         last = m.range.last + 1
     }

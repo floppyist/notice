@@ -11,6 +11,8 @@ pub struct AppState {
     pub archive_pool: SqlitePool,
     pub config: Arc<Mutex<Config>>,
     pub created_fresh: bool,
+    /// Zugriffstoken für den Mehrgeräte-Betrieb (None = offen, nur lokal erlaubt).
+    pub token: Option<Arc<str>>,
 }
 
 #[derive(Serialize, Deserialize, FromRow, Clone)]

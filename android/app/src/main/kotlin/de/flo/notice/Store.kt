@@ -20,6 +20,8 @@ class Store(private val api: Api, private val scope: CoroutineScope) {
     var config by mutableStateOf(JSONObject())
     var message by mutableStateOf<String?>(null)
     var loaded by mutableStateOf(false)
+    /** Wird nach jedem erfolgreichen Laden mit den aktuellen Notizen aufgerufen (Erinnerungen planen). */
+    var onNotes: ((List<Note>) -> Unit)? = null
 
     fun refresh() {
         scope.launch {
@@ -40,6 +42,7 @@ class Store(private val api: Api, private val scope: CoroutineScope) {
                 trash = r[5] as Trash
                 config = r[6] as JSONObject
                 loaded = true
+                onNotes?.invoke(notes)
             } catch (e: Exception) {
                 message = e.message ?: "Fehler"
             }

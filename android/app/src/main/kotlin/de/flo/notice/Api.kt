@@ -8,13 +8,14 @@ import java.net.URL
 class ApiException(message: String) : Exception(message)
 
 /** Dünner Client für die REST-API des lokalen Notice-Servers (blockierend, in IO aufrufen). */
-class Api(private val base: String) {
+class Api(private val base: String, private val token: String = "") {
     private fun call(method: String, path: String, body: String? = null): String {
         val c = URL(base + path).openConnection() as HttpURLConnection
         try {
             c.requestMethod = method
             c.connectTimeout = 4000
             c.readTimeout = 15000
+            if (token.isNotBlank()) c.setRequestProperty("Authorization", "Bearer $token")
             if (body != null) {
                 c.doOutput = true
                 c.setRequestProperty("Content-Type", "application/json")
@@ -23,6 +24,7 @@ class Api(private val base: String) {
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else c.errorStream
             val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            if (code == 401) throw ApiException("Token ungültig / nicht autorisiert")
             if (code !in 200..299) throw ApiException("HTTP $code $method $path")
             return text
         } finally {

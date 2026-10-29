@@ -5,7 +5,7 @@ use axum::{extract::State, response::Html};
 pub async fn index_handler(State(state): State<AppState>) -> Html<String> {
     let cfg = state.config.lock().await;
     let initial_cfg = serde_json::to_string(&serde_json::json!({
-        "config": &*cfg,
+        "config": cfg.public_json(),
         "created_fresh": state.created_fresh
     }))
     .unwrap_or_else(|_| "{}".to_string());

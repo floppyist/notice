@@ -111,4 +111,17 @@
     <string name="wiki_ph">Markdown, Verweise mit [[Seitenname]] …</string>
     <string name="yes">Ja</string>
     <string name="title_required">Der Titel darf nicht leer sein.</string>
+    <string name="reminders">Erinnerungen</string>
+    <string name="reminder_lead">Vorlaufzeit vor Terminen mit Uhrzeit</string>
+    <string name="reminder_at_start">Zum Termin</string>
+    <string name="reminder_in">in %d Min</string>
+    <string name="reminder_today">Heute</string>
+    <string name="reminder_due">Heute fällig</string>
+    <string name="sync">Synchronisation</string>
+    <string name="sync_hint">Zentralen Notice-Server nutzen: alle Geräte teilen denselben Datenstand. Nur HTTPS; Token mit „notice --gen-token“ erzeugen. Ohne Eintrag arbeitet die App lokal.</string>
+    <string name="sync_url">Server-URL</string>
+    <string name="sync_token">Token</string>
+    <string name="sync_connect">Mit Server verbinden</string>
+    <string name="sync_https">Die URL muss mit https:// beginnen</string>
+    <string name="use_local">Lokal verwenden</string>
 </resources>

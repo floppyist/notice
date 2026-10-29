@@ -9,6 +9,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 
 pub mod app;
 pub mod editor;
+pub mod links;
 pub mod render;
 pub mod theme;
 

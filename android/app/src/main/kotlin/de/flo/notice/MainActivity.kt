@@ -28,17 +28,26 @@ class MainActivity : ComponentActivity() {
         setContent {
             NoticeApp(store = store, failed = failed, activity = this)
         }
+        Reminders.ensureChannel(this)
+        if (!Reminders.hasPermission(this) && android.os.Build.VERSION.SDK_INT >= 33) {
+            registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+                .launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         boot()
     }
 
     private fun boot() {
         failed = false
         scope.launch(Dispatchers.IO) {
-            val ok = Server.start(applicationContext)
+            val remote = Remote.enabled(applicationContext)
+            // Remote: zentraler Server (HTTPS + Token); sonst eingebauten lokalen Server starten.
+            val api = if (remote) Api(Remote.url(applicationContext), Remote.token(applicationContext)) else null
+            val ok = if (api != null) runCatching { api.config(); true }.getOrDefault(false) else Server.start(applicationContext)
             launch(Dispatchers.Main) {
                 if (ok) {
-                    val s = Store(Api(Server.base), scope)
+                    val s = Store(api ?: Api(Server.base), scope)
                     store = s
+                    s.onNotes = { Reminders.sync(applicationContext, it) }
                     s.refresh()
                 } else {
                     failed = true

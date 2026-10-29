@@ -73,6 +73,11 @@ private fun Boot(failed: Boolean, retry: () -> Unit) {
             modifier = Modifier.padding(top = 12.dp),
         )
         if (failed) Btn(stringResource(R.string.retry), retry, Modifier.padding(top = 16.dp), primary = true)
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        if (failed && Remote.enabled(ctx)) {
+            Tx(Remote.url(ctx), color = C.muted, size = 11, modifier = Modifier.padding(top = 12.dp))
+            Btn(stringResource(R.string.use_local), { Remote.set(ctx, "", ""); retry() }, Modifier.padding(top = 8.dp))
+        }
     }
 }
 

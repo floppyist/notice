@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 pub async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
     let cfg = state.config.lock().await;
     Json(json!({
-        "config": &*cfg,
+        "config": cfg.public_json(),
         "created_fresh": state.created_fresh,
         "path": Config::FILE
     }))
@@ -22,8 +22,13 @@ pub async fn update_config(
     State(state): State<AppState>,
     Json(patch): Json<Value>,
 ) -> impl IntoResponse {
+    let mut patch = patch;
     if !patch.is_object() {
         return StatusCode::BAD_REQUEST.into_response();
+    }
+    // Das Token lässt sich nur direkt in config.toml / per NOTICE_TOKEN ändern, nie über die API.
+    if let Some(server) = patch.get_mut("server").and_then(|s| s.as_object_mut()) {
+        server.remove("auth_token");
     }
     let mut cfg = state.config.lock().await;
     let base = serde_json::to_value(&*cfg).unwrap_or_else(|_| json!({}));
@@ -51,5 +56,5 @@ pub async fn update_config(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     *cfg = new_cfg.clone();
-    Json(json!({ "config": new_cfg })).into_response()
+    Json(json!({ "config": new_cfg.public_json() })).into_response()
 }

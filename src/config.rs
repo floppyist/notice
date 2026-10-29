@@ -20,6 +20,8 @@ impl Config {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    /// Zugriffstoken (leer = keine Authentifizierung). Alternativ `NOTICE_TOKEN`.
+    pub auth_token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +47,7 @@ pub struct AppConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { host: "127.0.0.1".into(), port: 8080 }
+        Self { host: "127.0.0.1".into(), port: 8080, auth_token: String::new() }
     }
 }
 
@@ -86,6 +88,15 @@ impl Default for Config {
 
 impl Config {
     pub const FILE: &'static str = "config.toml";
+
+    /// Config als JSON für Clients – ohne Geheimnisse.
+    pub fn public_json(&self) -> serde_json::Value {
+        let mut v = serde_json::to_value(self).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(server) = v.get_mut("server").and_then(|s| s.as_object_mut()) {
+            server.remove("auth_token");
+        }
+        v
+    }
 
     pub fn addr(&self) -> SocketAddr {
         let ip = self

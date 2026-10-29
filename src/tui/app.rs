@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io;
 use std::time::Duration;
 
@@ -9,6 +9,7 @@ use sqlx::SqlitePool;
 use crate::models::{AppState, Contact, Note, WikiPage};
 use crate::recurrence;
 use crate::tui::editor::{ContactDraft, Editor, EditorAction, NoteDraft, SaveData, WikiDraft};
+use crate::tui::links::{self, link_key, Link, LinkKind};
 use crate::tui::render;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -199,7 +200,8 @@ pub struct App {
     pub autocomplete: Option<Vec<AutocompleteItem>>,
     pub autocomplete_index: usize,
     pub link_mode: Option<AutocompleteKind>,
-    pub wiki_links: HashMap<String, i64>,
+    pub wiki_links: HashSet<String>,
+    pub pending_links: Option<Vec<Link>>,
 }
 
 impl App {
@@ -232,7 +234,8 @@ impl App {
             autocomplete: None,
             autocomplete_index: 0,
             link_mode: None,
-            wiki_links: HashMap::new(),
+            wiki_links: HashSet::new(),
+            pending_links: None,
         }
     }
 
@@ -339,7 +342,25 @@ impl App {
     }
 
     async fn handle_normal_key(&mut self, key: KeyEvent) {
+        if let Some(links) = self.pending_links.take() {
+            if let KeyCode::Char(c) = key.code {
+                if let Some(d) = c.to_digit(10) {
+                    if d >= 1 {
+                        if let Some(l) = links.get(d as usize - 1) {
+                            self.jump_to(&l.clone());
+                            return;
+                        }
+                    }
+                }
+            }
+        }
         match key.code {
+            KeyCode::Char('o') => {
+                self.follow_links();
+                self.g_pressed = false;
+                self.pending_d = false;
+                return;
+            }
             KeyCode::Char(':') => {
                 self.command_mode = true;
                 self.command.clear();
@@ -690,6 +711,13 @@ impl App {
     }
 
     async fn handle_editor_key(&mut self, key: KeyEvent) {
+        let mut candidates: Vec<(LinkKind, String)> = Vec::new();
+        candidates.extend(self.notes.iter().map(|n| (LinkKind::Note, n.title.clone())));
+        candidates.extend(self.wiki.iter().map(|w| (LinkKind::Wiki, w.title.clone())));
+        candidates.extend(self.contacts.iter().map(|c| (LinkKind::Contact, c.name.clone())));
+        if let Some(editor) = self.editor.as_mut() {
+            editor.candidates = candidates;
+        }
         let action = self
             .editor
             .as_mut()
@@ -1475,16 +1503,86 @@ impl App {
         Ok(())
     }
 
+    /// Index aller existierenden Link-Ziele (Notizen, Wiki, Kontakte) für die Darstellung.
     async fn load_wiki_links(&mut self) -> Result<(), String> {
-        let rows = sqlx::query_as::<_, (i64, String)>("SELECT id, title FROM wiki")
-            .fetch_all(&self.state.pool)
-            .await
-            .map_err(|e| format!("Fehler: {e}"))?;
-        self.wiki_links.clear();
-        for (id, title) in rows {
-            self.wiki_links.insert(title.to_lowercase(), id);
-        }
+        self.rebuild_links();
         Ok(())
+    }
+
+    fn rebuild_links(&mut self) {
+        let mut set = HashSet::new();
+        for n in &self.notes {
+            set.insert(link_key(LinkKind::Note, &n.title));
+        }
+        for w in &self.wiki {
+            set.insert(link_key(LinkKind::Wiki, &w.title));
+        }
+        for c in &self.contacts {
+            set.insert(link_key(LinkKind::Contact, &c.name));
+        }
+        self.wiki_links = set;
+    }
+
+    /// Text (ohne Checkliste) des aktuell ausgewählten Eintrags.
+    fn current_text(&self) -> Option<String> {
+        let note_text = |n: &Note| {
+            serde_json::from_str::<serde_json::Value>(&n.content)
+                .ok()
+                .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(str::to_string))
+                .unwrap_or_else(|| n.content.clone())
+        };
+        match self.view {
+            View::Notes => self.selected_note().map(note_text),
+            View::Kanban => self.kanban_list().get(self.selected).map(|n| note_text(n)),
+            View::Calendar => self.selected_calendar_note().map(note_text),
+            View::Archive => self.selected_archived().map(note_text),
+            View::Wiki => self.selected_wiki().and_then(|w| w.content.clone()),
+            _ => None,
+        }
+    }
+
+    /// `o`: Links des aktuellen Eintrags folgen.
+    fn follow_links(&mut self) {
+        let links = self.current_text().map(|t| links::extract(&t)).unwrap_or_default();
+        match links.len() {
+            0 => self.status = "Keine Links im Eintrag".to_string(),
+            1 => self.jump_to(&links[0]),
+            _ => {
+                let list: Vec<String> = links.iter().take(9).enumerate().map(|(i, l)| format!("{}:{}", i + 1, l.display)).collect();
+                self.status = format!("Link wählen: {}", list.join("  "));
+                self.pending_links = Some(links);
+            }
+        }
+    }
+
+    fn jump_to(&mut self, link: &Link) {
+        let found = match link.kind {
+            LinkKind::Note => {
+                self.set_view(View::Notes);
+                self.filter = NoteFilter::All;
+                self.search.clear();
+                self.notes.iter().position(|n| n.title.eq_ignore_ascii_case(&link.target) || n.title.to_lowercase() == link.target.to_lowercase())
+            }
+            LinkKind::Wiki => {
+                self.set_view(View::Wiki);
+                self.search.clear();
+                self.wiki.iter().position(|w| w.title.to_lowercase() == link.target.to_lowercase())
+            }
+            LinkKind::Contact => {
+                self.set_view(View::Data);
+                self.search.clear();
+                let offset = self.visible_depts().len();
+                self.contacts.iter().position(|c| c.name.to_lowercase() == link.target.to_lowercase()).map(|i| i + offset)
+            }
+        };
+        match found {
+            Some(i) => {
+                self.selected = i;
+                self.clamp_selection();
+                self.status = format!("→ {}", link.display);
+            }
+            None => self.status = format!("Nicht gefunden: {}", link.raw()),
+        }
     }
 
     async fn reload(&mut self) -> Result<(), String> {
@@ -1538,6 +1636,7 @@ impl App {
         .await
         .map_err(|e| format!("Fehler: {e}"))?;
 
+        self.rebuild_links();
         self.clamp_selection();
         Ok(())
     }

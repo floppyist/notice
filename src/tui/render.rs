@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -10,6 +10,7 @@ use ratatui::{
 
 use crate::models::{first_department, Note};
 use crate::tui::app::{App, AutocompleteKind, Confirm, Focus, View};
+use crate::tui::links::{link_key, segments, LinkKind, Seg};
 use crate::tui::theme as th;
 
 const VIEWS: [View; 8] = [View::Dashboard, View::Kanban, View::Notes, View::Wiki, View::Data, View::Calendar, View::Archive, View::Trash];
@@ -524,7 +525,7 @@ fn render_data_detail(app: &App, frame: &mut Frame, area: Rect) {
     render_detail_panel(frame, area, lines, app.detail_scroll, app.focus == Focus::Detail, "Detail");
 }
 
-fn detail_content(raw: &str, wiki_links: &HashMap<String, i64>) -> Vec<Line<'static>> {
+fn detail_content(raw: &str, wiki_links: &HashSet<String>) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
         if let Some(text) = value.get("text").and_then(|v| v.as_str()) {
@@ -586,30 +587,27 @@ fn appointment_lines(note: &Note) -> Vec<Line<'static>> {
     lines
 }
 
-fn render_line_with_links(line: &str, wiki_links: &HashMap<String, i64>) -> Line<'static> {
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut rest = line;
-    while let Some(start) = rest.find("[[") {
-        let Some(len) = rest[start + 2..].find("]]") else { break };
-        if len == 0 {
-            spans.push(Span::styled(rest[..start + 4].to_string(), th::text()));
-            rest = &rest[start + 4..];
-            continue;
-        }
-        if start > 0 {
-            spans.push(Span::styled(rest[..start].to_string(), th::text()));
-        }
-        let inner = &rest[start + 2..start + 2 + len];
-        let mut style = Style::default().fg(th::purple());
-        if wiki_links.contains_key(&inner.to_lowercase()) {
-            style = style.add_modifier(Modifier::UNDERLINED);
-        }
-        spans.push(Span::styled(format!("[[{}]]", inner), style));
-        rest = &rest[start + 2 + len + 2..];
-    }
-    if !rest.is_empty() || spans.is_empty() {
-        spans.push(Span::styled(rest.to_string(), th::text()));
-    }
+fn render_line_with_links(line: &str, known: &HashSet<String>) -> Line<'static> {
+    let spans: Vec<Span<'static>> = segments(line)
+        .into_iter()
+        .map(|seg| match seg {
+            Seg::Text(t) => Span::styled(t, th::text()),
+            Seg::Link(l) => {
+                let color = match l.kind {
+                    LinkKind::Note => th::purple(),
+                    LinkKind::Wiki => th::blue(),
+                    LinkKind::Contact => th::aqua(),
+                };
+                let mut style = Style::default().fg(color);
+                if known.contains(&link_key(l.kind, &l.target)) {
+                    style = style.add_modifier(Modifier::UNDERLINED);
+                } else {
+                    style = style.add_modifier(Modifier::DIM);
+                }
+                Span::styled(l.display, style)
+            }
+        })
+        .collect();
     Line::from(spans)
 }
 
@@ -691,7 +689,11 @@ fn render_help(frame: &mut Frame, area: Rect) {
         key(":dashboard :kanban …", "Ansicht wechseln"),
         Line::from(""),
         sec("Links"),
-        key("[[Seite]]", "Wiki-Verlinkung"),
+        key("[[Notiz]]", "Notiz-Link"),
+        key("<<Seite>>", "Wiki-Link"),
+        key("{{Name}}", "Kontakt-Link"),
+        key("o", "Link folgen (bei mehreren: o, dann Ziffer)"),
+        key("[[ << {{", "tippen → Vorschläge (↑↓, Tab/Enter, Esc)"),
         Line::from(""),
         Line::from(Span::styled("  Esc oder ? schließt die Hilfe", th::faint())),
     ];
@@ -731,6 +733,17 @@ fn render_editor(frame: &mut Frame, area: Rect, editor: &mut crate::tui::editor:
             let screen_col = popup.x + col as u16 + 1;
             if screen_row < popup.y + popup.height - 1 && screen_col < popup.x + popup.width - 1 {
                 frame.set_cursor_position((screen_col, screen_row));
+                if let Some((items, sel)) = editor.suggestions() {
+                    let lines: Vec<Line> = items.iter().enumerate().map(|(i, t)| th::row(i == sel, true, vec![Span::styled(t.clone(), th::text())])).collect();
+                    let width = (items.iter().map(|t| t.chars().count()).max().unwrap_or(10) as u16 + 4).clamp(20, area.width);
+                    let height = items.len() as u16 + 2;
+                    let x = screen_col.min(area.x + area.width.saturating_sub(width));
+                    let below = screen_row + 1;
+                    let y = if below + height <= area.y + area.height { below } else { screen_row.saturating_sub(height) };
+                    let rect = Rect { x, y, width, height: height.min(area.height) };
+                    frame.render_widget(Clear, rect);
+                    frame.render_widget(Paragraph::new(lines).block(overlay_block("Link-Vorschläge")), rect);
+                }
             }
         }
     }
@@ -741,7 +754,8 @@ fn render_autocomplete(app: &App, frame: &mut Frame, area: Rect) {
         let mut lines: Vec<Line> = Vec::new();
         for (i, item) in items.iter().take(12).enumerate() {
             let text = match item.kind {
-                AutocompleteKind::Wiki | AutocompleteKind::Note => format!("[[{}]]", item.name),
+                AutocompleteKind::Note => format!("[[{}]]", item.name),
+                AutocompleteKind::Wiki => format!("<<{}>>", item.name),
                 AutocompleteKind::Contact => format!("{{{{{}}}}}", item.name),
             };
             lines.push(th::row(i == app.autocomplete_index, true, vec![Span::styled(text, th::text())]));
