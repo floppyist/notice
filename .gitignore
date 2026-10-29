@@ -8,3 +8,4 @@ config.toml.tmp
 
 android/keystore.properties
 *.jks
+.notice-token

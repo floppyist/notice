@@ -198,7 +198,6 @@ fun SettingsScreen(store: Store, nav: Nav, activity: MainActivity) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val app = store.config.optJSONObject("app") ?: JSONObject()
-    var lead by remember { mutableStateOf(Reminders.leadMinutes(ctx)) }
     var remoteUrl by remember { mutableStateOf(Remote.url(ctx)) }
     var remoteToken by remember { mutableStateOf(Remote.token(ctx)) }
     var archDay by remember { mutableStateOf(app.optInt("auto_archive_day", 1).toString()) }
@@ -232,15 +231,15 @@ fun SettingsScreen(store: Store, nav: Nav, activity: MainActivity) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SectionTitle(stringResource(R.string.reminders))
             Tx(stringResource(R.string.reminder_lead), color = C.muted, size = 11)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Reminders.LEAD_OPTIONS.forEach { m ->
-                    Chip(if (m == 0) stringResource(R.string.reminder_at_start) else "$m min", lead == m, {
-                        lead = m
-                        Reminders.setLeadMinutes(ctx, m)
-                        Reminders.sync(ctx, store.notes)
-                    })
-                }
+            if (!Reminders.canScheduleExact(ctx)) {
+                Btn(stringResource(R.string.reminder_exact), {
+                    if (android.os.Build.VERSION.SDK_INT >= 31)
+                        ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, android.net.Uri.parse("package:" + ctx.packageName)))
+                }, Modifier.fillMaxWidth())
             }
+            Btn(stringResource(R.string.reminder_battery), {
+                ctx.startActivity(android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }, Modifier.fillMaxWidth())
 
             SectionTitle(stringResource(R.string.auto_archive))
             Toggle(stringResource(R.string.auto_archive_desc), app.optBoolean("auto_archive_enabled")) { patch("auto_archive_enabled", it) }
